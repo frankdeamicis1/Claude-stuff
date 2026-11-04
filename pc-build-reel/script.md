@@ -36,15 +36,21 @@ timing. Read them straight; they're written the way you talk.
 
 ## Post caption
 
-> Your graphics card draws about a billion pixels every second at 4K, 120 FPS. I did the math.
->
-> 8,294,400 pixels a frame × 120 frames = 995,328,000 pixels a second. That's 8.3 ms per frame.
->
-> Your CPU figures out what's happening in the game. The GPU actually draws it. So in most games, the GPU decides your FPS.
->
-> In San Diego and want a PC that actually hits the frames you're paying for? DM me "FPS" with your budget and the games you play. I'll tell you what I'd build.
->
-> #sandiego #gamingpc #pcbuild #gpu #fps
+The first line shows before "more", so the San Diego CTA goes there.
+
+```
+In San Diego? DM me "FPS" if you want a gaming PC that actually hits the frames you're paying for.
+
+Fun fact: your graphics card draws about a billion pixels every second. Let's do the math real quick.
+
+A 4K screen is 8,294,400 pixels. Run 120 FPS and your GPU draws that 120 times a second. That's 995,328,000 pixels a second, or 1 frame every 8.3 ms. You blink slower than that.
+
+Your CPU figures out what's happening in the game. Your GPU actually draws it. So in most games, the GPU decides your FPS.
+
+Send me your budget and the games you play, and I'll tell you what I'd build. I build and sell locally, so San Diego area only.
+
+#sandiego #gamingpc #pcbuild #gpu #fps
+```
 
 When you post, set the location tag to San Diego so the reel gets shown to people nearby.
 
