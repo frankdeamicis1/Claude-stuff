@@ -54,6 +54,18 @@ Send me your budget and the games you play, and I'll tell you what I'd build. I 
 
 When you post, set the location tag to San Diego so the reel gets shown to people nearby.
 
+### TikTok (short version)
+
+```
+In San Diego? DM me "FPS" with your budget and I'll tell you what I'd build.
+
+Your GPU draws about a billion pixels a second at 4K 120 FPS. In most games, it's the part that decides your FPS.
+
+#sandiego #gamingpc #pcbuild #gpu #fps
+```
+
+Check that your TikTok message settings let people who don't follow you send you a DM.
+
 ## DM reply (next step of the funnel)
 
 When someone sends "FPS", whether you reply by hand or with an auto-reply:
