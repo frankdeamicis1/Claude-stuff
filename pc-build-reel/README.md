@@ -1,8 +1,8 @@
 # PC build reel: "Your GPU draws a billion pixels a second"
 
 An animated sales-funnel reel (1080×1920, 30 fps, 42.5 s) of cartoon Frank
-building a PC, with a fun fact about GPU performance and FPS and a DM call
-to action at the end.
+building a PC, with a fun fact about GPU performance and FPS and a call to
+action for San Diego locals at the end ("In San Diego? DM me FPS").
 
 - `out/gpu-fps-reel.mp4`: the finished reel (H.264 + AAC, ready for Reels / TikTok / Shorts)
 - `out/cover.png`: cover frame

@@ -479,11 +479,11 @@ function overlay() {
     <!-- LET'S DO THE MATH -->
     ${tx('st1', 540, 300, 78, 'hd', C.ink, 'LET’S DO THE', 'filter="url(#shadow)"')}
     ${tx('st2', 540, 400, 92, 'hd', C.yellow, 'MATH REAL QUICK', 'filter="url(#shadow)"')}
-    <g id="tag" opacity="0" transform="translate(60,1470)">
-      <rect x="0" y="0" width="600" height="112" rx="22" fill="#080c18" fill-opacity=".88" stroke="${C.green}" stroke-width="3"/>
+    <g id="tag" opacity="0" transform="translate(60,1440)">
+      <rect x="0" y="0" width="700" height="112" rx="22" fill="#080c18" fill-opacity=".88" stroke="${C.green}" stroke-width="3"/>
       <rect x="0" y="0" width="14" height="112" rx="7" fill="${C.green}"/>
       <text x="40" y="50" font-size="42" class="hd" fill="${C.ink}">Frank DeAmicis</text>
-      <text x="40" y="88" font-size="29" class="md" fill="${C.ink2}">builds &amp; sells gaming PCs</text>
+      <text x="40" y="88" font-size="29" class="md" fill="${C.ink2}">builds &amp; sells gaming PCs in San Diego</text>
     </g>
 
     <!-- 4K PIXELS -->
@@ -577,18 +577,22 @@ function overlay() {
     ${tx('fp3', 540, 950, 42, 'bd', C.ink, `More frames = ${hl('smoother', C.yellow)} + ${hl('more responsive', C.yellow)}`, 'filter="url(#shadow)"')}
 
     <!-- CTA -->
-    ${tx('ct1', 540, 214, 52, 'hd', C.ink, 'WANT A PC THAT ACTUALLY HITS', 'filter="url(#shadow)"')}
-    ${tx('ct2', 540, 280, 52, 'hd', C.ink, 'THE FRAMES YOU’RE PAYING FOR?', 'filter="url(#shadow)"')}
-    ${tx('ct3', 540, 410, 92, 'hd', C.ink, 'DM ME', 'filter="url(#shadow)"')}
-    <g id="ctBox" opacity="0" transform="translate(540,540)">
+    ${tx('ct1', 540, 196, 48, 'hd', C.ink, 'WANT A PC THAT ACTUALLY HITS', 'filter="url(#shadow)"')}
+    ${tx('ct2', 540, 256, 48, 'hd', C.ink, 'THE FRAMES YOU’RE PAYING FOR?', 'filter="url(#shadow)"')}
+    <g id="ctSD" opacity="0" transform="translate(540,374)" filter="url(#shadow)">
+      <g id="ctPin" transform="translate(-300,-30)"><path d="M 0,40 C -6,30 -32,6 -32,-12 C -32,-30 -18,-44 0,-44 C 18,-44 32,-30 32,-12 C 32,6 6,30 0,40 Z" fill="${C.yellow}" stroke="#0b0d12" stroke-width="5"/><circle cx="0" cy="-13" r="11" fill="#0b0d12"/></g>
+      <text id="ctSDt" x="40" y="0" text-anchor="middle" font-size="84" class="hd" fill="${C.yellow}">IN SAN DIEGO?</text>
+    </g>
+    ${tx('ct3', 330, 540, 92, 'hd', C.ink, 'DM ME', 'filter="url(#shadow)"')}
+    <g id="ctBox" opacity="0" transform="translate(712,508)">
       <rect id="ctGlow" x="-200" y="-82" width="400" height="164" rx="34" fill="${C.green}" opacity=".5" filter="url(#blur24)"/>
       <rect x="-190" y="-76" width="380" height="152" rx="30" fill="${C.green}" stroke="#0b0d12" stroke-width="5"/>
       <text x="0" y="44" text-anchor="middle" font-size="124" class="hd" fill="#04130a">“FPS”</text>
     </g>
-    ${tx('ct4', 540, 686, 40, 'bd', C.ink, 'Send me your budget + the games you play.', 'filter="url(#shadow)"')}
-    ${tx('ct5', 540, 740, 40, 'bd', C.ink, 'I’ll tell you what I’d build.', 'filter="url(#shadow)"')}
-    <g id="ct6" opacity="0" transform="translate(540,812)"><rect x="-300" y="-34" width="600" height="56" rx="28" fill="#080c18" fill-opacity=".85" stroke="#2b3453" stroke-width="2"/>
-      <text x="0" y="5" text-anchor="middle" font-size="28" class="bd" fill="${C.ink2}">Frank DeAmicis · builds &amp; sells gaming PCs</text></g>
+    ${tx('ct4', 540, 664, 38, 'bd', C.ink, 'Send me your budget + the games you play.', 'filter="url(#shadow)"')}
+    ${tx('ct5', 540, 714, 38, 'bd', C.ink, 'I’ll tell you what I’d build.', 'filter="url(#shadow)"')}
+    <g id="ct6" opacity="0" transform="translate(540,786)"><rect x="-340" y="-34" width="680" height="56" rx="28" fill="#080c18" fill-opacity=".85" stroke="#2b3453" stroke-width="2"/>
+      <text x="0" y="5" text-anchor="middle" font-size="28" class="bd" fill="${C.ink2}">Frank DeAmicis · gaming PCs · San Diego</text></g>
 
     </g>
     <!-- FX -->
@@ -757,9 +761,14 @@ const TXT = [
   ['dc1', 27.5, 29.35, 'up'], ['dc2', 27.75, 29.35, 'pop'], ['dc3', 28.05, 29.35, 'slam'],
   ['in1', 30.5, 31.45, 'slam'], ['in2', 30.75, 31.45, 'up'],
   ['fp0', 31.6, 34.9, 'up'], ['mon', 31.75, 34.9, 'pop'], ['fp3', 32.6, 34.9, 'up'],
-  ['ct1', 35.1, 41.5, 'up'], ['ct2', 35.25, 41.5, 'up'], ['ct3', 36.45, 41.5, 'pop'], ['ctBox', 36.5, 41.5, 'slam'],
+  ['ct1', 35.1, 41.5, 'up'], ['ct2', 35.25, 41.5, 'up'], ['ctSD', 35.95, 41.5, 'slam'], ['ct3', 36.45, 41.5, 'pop'], ['ctBox', 36.5, 41.5, 'slam'],
   ['ct4', 37.5, 41.5, 'up'], ['ct5', 37.75, 41.5, 'up'], ['ct6', 38.4, 41.5, 'up'],
 ];
+(function centreSD() {
+  const t = $('ctSDt'), L = t.getComputedTextLength(), pinW = 64, gap = 20, left = -(pinW + gap + L) / 2;
+  $('ctPin').setAttribute('transform', `translate(${(left + pinW / 2).toFixed(1)},-30)`);
+  t.setAttribute('x', (left + pinW + gap + L / 2).toFixed(1));
+})();
 const BASE = {};
 for (const [id] of TXT) { const m = /translate\(([-\d.]+),([-\d.]+)\)(.*)/.exec($(id).getAttribute('transform')); BASE[id] = [parseFloat(m[1]), parseFloat(m[2]), m[3] || '']; }
 function textAnim(t) {
@@ -1057,7 +1066,7 @@ window.CUES = {
   bpm: 120, duration: DUR,
   impacts: [0, 1.5, 13.0, 28.05, GPU_SNAP, 36.5],
   whooshes: [3.4, 5.85, 9.0, 11.45, 15.45, 17.9, 20.9, 24.45, 27.45, 29.4, 31.45, 34.9],
-  pops: [0.05, 3.65, 3.8, 6.0, 6.6, 9.05, 11.55, 14.0, 15.75, 18.15, 18.3, 19.95, 21.0, 21.2, 21.65, 24.75, 25.05, 25.35, 26.35, 27.75, 31.75, 32.6, 35.1, 37.5, 38.4],
+  pops: [0.05, 3.65, 3.8, 6.0, 6.6, 9.05, 11.55, 14.0, 15.75, 18.15, 18.3, 19.95, 21.0, 21.2, 21.65, 24.75, 25.05, 25.35, 26.35, 27.75, 31.75, 32.6, 35.1, 35.95, 37.5, 38.4],
   clicks: [...PARTS.map(p => p[1]), GPU_SNAP],
   tickRuns: [[0.15, 1.45, 0.045], [6.75, 8.25, 0.05], [11.6, 12.6, 0.05]],
   frameTicks: [[9.45, 10.45, 120], [16.05, 17.05, 120]],

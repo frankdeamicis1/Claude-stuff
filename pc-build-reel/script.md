@@ -16,7 +16,7 @@ timing. Read them straight; they're written the way you talk.
 | 0:29 | "In most games, your GPU decides your FPS" | The takeaway |
 | 0:31 | GPU clicks in, glass on, power on | The build moment |
 | 0:33 | 30 FPS vs 144 FPS side by side | Show the difference |
-| 0:36 | "Want a PC that actually hits the frames you're paying for? DM me FPS" | CTA |
+| 0:36 | "Want a PC that actually hits the frames you're paying for? In San Diego? DM me FPS" | CTA, San Diego locals only |
 
 ## Voiceover (optional, word for word)
 
@@ -32,7 +32,7 @@ timing. Read them straight; they're written the way you talk.
 - **0:29** So in most games, the GPU decides your FPS.
 - **0:31** *(click)* GPU in.
 - **0:33** Same game, different GPU. More frames looks smoother, and it feels more responsive.
-- **0:36** If you want a PC that actually hits the frames you're paying for, DM me "FPS." Send me your budget and the games you play, and I'll tell you what I'd build.
+- **0:36** If you're in San Diego and you want a PC that actually hits the frames you're paying for, DM me "FPS." Send me your budget and the games you play, and I'll tell you what I'd build.
 
 ## Post caption
 
@@ -42,15 +42,17 @@ timing. Read them straight; they're written the way you talk.
 >
 > Your CPU figures out what's happening in the game. The GPU actually draws it. So in most games, the GPU decides your FPS.
 >
-> Want a PC that actually hits the frames you're paying for? DM me "FPS" with your budget and the games you play. I'll tell you what I'd build.
+> In San Diego and want a PC that actually hits the frames you're paying for? DM me "FPS" with your budget and the games you play. I'll tell you what I'd build.
 >
-> #gamingpc #pcbuild #gpu #fps #custompc
+> #sandiego #gamingpc #pcbuild #gpu #fps
+
+When you post, set the location tag to San Diego so the reel gets shown to people nearby.
 
 ## DM reply (next step of the funnel)
 
 When someone sends "FPS", whether you reply by hand or with an auto-reply:
 
-> Hey, appreciate you reaching out. Two quick questions so I can point you the right way: what's your budget, and what games do you play? If you know your monitor (1080p, 1440p, 4K, refresh rate), send that too. I'll tell you what I'd build for it.
+> Hey, appreciate you reaching out. A few quick questions so I can point you the right way: what's your budget, what games do you play, and what part of San Diego are you in? If you know your monitor (1080p, 1440p, 4K, refresh rate), send that too. I'll tell you what I'd build for it.
 
 ## Fact check (all on screen)
 
@@ -63,6 +65,6 @@ When someone sends "FPS", whether you reply by hand or with an auto-reply:
 
 ## Things to change before posting (one line each in `reel.html`)
 
-- CTA keyword: search for `“FPS”` (the green button) and `DM me` in the caption text.
-- Name tag text: search for `builds &amp; sells gaming PCs`.
+- CTA: search for `IN SAN DIEGO?`, `DM ME` and `“FPS”` (the green button).
+- Name tags: search for `in San Diego` (0:04) and `gaming PCs · San Diego` (end).
 - Then run `./build.sh` to re-render.
