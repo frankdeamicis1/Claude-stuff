@@ -338,7 +338,7 @@ for b in range(nbars):
             add(music, bass(note(root) * (2 if s16 in (6, 14) else 1), BEAT / 2 - 0.02, g), t)
         # little arp only where the story lifts (hand-off + CTA)
         if t >= SEC["yours"][0] and s16 % 2 == 0:
-            add(music, pluck(note(arp[(s16 // 2) % 3])), t, gain=0.9, pan=-0.3 if s16 % 4 else 0.3)
+            add(music, pluck(note(arp[(s16 // 2) % 3])), t, gain=0.45, pan=-0.3 if s16 % 4 else 0.3)
             add(send, pluck(note(arp[(s16 // 2) % 3])), t, gain=0.4)
 
 duck = np.ones(N)
@@ -352,23 +352,23 @@ music *= duck[:, None]
 
 # ------------------------------------------------------------------ sfx placement
 for i, t in enumerate(cues["whoosh"]):
-    add(sfx, whoosh(0.38 + 0.06 * (i % 3)), t - 0.18, gain=0.55, pan=-0.35 if i % 2 else 0.35)
+    add(sfx, whoosh(0.38 + 0.06 * (i % 3)), t - 0.18, gain=0.32, pan=-0.35 if i % 2 else 0.35)
 for i, t in enumerate(cues["pop"]):
-    add(sfx, pop(1.0 + 0.12 * ((i * 5) % 4)), t, gain=0.6, pan=(i % 3 - 1) * 0.25)
+    add(sfx, pop(1.0 + 0.12 * ((i * 5) % 4)), t, gain=0.42, pan=(i % 3 - 1) * 0.25)
 for i, t in enumerate(cues["tick"]):
     add(sfx, tick(2600 + 120 * (i % 7)), t, gain=1.0)
 for t in cues["chime"]:
     add(sfx, chime(), t); add(send, chime(), t, gain=0.4)
 for t in cues["kaching"]:
-    add(sfx, kaching(), t)
+    add(sfx, kaching(), t, gain=0.6)
 for t in cues["thump"]:
-    add(sfx, thump(), t, gain=0.9)
+    add(sfx, thump(), t, gain=0.6)
 for i, t in enumerate(cues["check"]):
     add(sfx, tick(3400 + 150 * i, 0.08), t)
 for t in cues["stamp"]:
-    add(sfx, stamp(), t, gain=0.9)
+    add(sfx, stamp(), t, gain=0.5)
 for i, t in enumerate(cues["click"]):
-    add(sfx, snap(), t, gain=1.15 if i == len(cues["click"]) - 1 else 0.9); add(send, snap(), t, gain=0.2)
+    add(sfx, snap(), t, gain=0.85 if i == len(cues["click"]) - 1 else 0.7); add(send, snap(), t, gain=0.2)
 for t in cues["zip"]:
     add(sfx, zip_tie(), t)
 for t in cues["glass"]:
@@ -381,7 +381,7 @@ h0, h1 = cues["fanHum"]
 add(sfx, fan_hum(h1 - h0), h0)
 for i, t in enumerate(cues["blips"]):
     add(sfx, blip(1400 + 200 * (i % 4)), t, pan=0.3)
-add(sfx, riser(pass_t - (pass_t - 2.2)), pass_t - 2.2, gain=0.55)
+add(sfx, riser(2.2), pass_t - 2.2, gain=0.3)
 for t in cues["pass"]:
     add(sfx, chime(("D6", "F#6", "A6", "D7"), 0.08, 0.13), t); add(send, chime(("D6", "F#6", "A6", "D7"), 0.08, 0.1), t, gain=0.5)
 for i, t in enumerate(cues["steps"]):
@@ -389,7 +389,7 @@ for i, t in enumerate(cues["steps"]):
 s0, s1 = cues["slide"]
 add(sfx, scrape(s1 - s0), s0)
 for t in cues["popper"]:
-    add(sfx, popper(), t)
+    add(sfx, popper(), t, gain=0.5)
 for t in cues["yay"]:
     add(sfx, chime(("D6", "E6", "F#6", "A6", "B6", "D7"), 0.06, 0.1), t); add(send, chime(("D6", "F#6", "A6")), t, gain=0.4)
 for t in cues["ding"]:
@@ -398,9 +398,9 @@ for t in cues["ding"]:
         bell = sum(a * np.sin(2 * np.pi * f * m * tt) * np.exp(-tt / d) for m, a, d in [(1, 1, 1.1), (2.76, .45, .5), (5.4, .2, .28)]) * 0.15
         add(sfx, bell, t + k * 0.12); add(send, bell, t + k * 0.12, gain=0.5)
 for t in cues["impacts"]:
-    add(sfx, boom(0.8), t, gain=0.7)
+    add(sfx, boom(0.8), t, gain=0.32)
 for t in cues["endHit"]:
-    add(sfx, boom(1.0), t, gain=0.6)
+    add(sfx, boom(1.0), t, gain=0.28)
 
 # ------------------------------------------------------------------ reverb + export
 ir_n = int(1.4 * SR)
@@ -412,11 +412,36 @@ L = N + ir_n
 nfft = 1 << int(np.ceil(np.log2(L)))
 wet = np.fft.irfft(np.fft.rfft(send, nfft, axis=0) * np.fft.rfft(ir, nfft, axis=0), nfft, axis=0)[:N]
 
+def compress(x, thr_db=-16.0, ratio=4.0, attack=0.002, release=0.15, block=96):
+    """Peak compressor so no single hit jumps out over the voice."""
+    mono = np.max(np.abs(x), axis=1)
+    nb = int(np.ceil(len(mono) / block))
+    m = np.pad(mono, (0, nb * block - len(mono))).reshape(nb, block).max(axis=1)
+    a_att, a_rel = np.exp(-block / (attack * SR)), np.exp(-block / (release * SR))
+    env = np.empty(nb); e = 0.0
+    for i in range(nb):
+        a = a_att if m[i] > e else a_rel
+        e = a * e + (1 - a) * m[i]
+        env[i] = e
+    thr = 10 ** (thr_db / 20)
+    gr = np.where(env > thr, (thr / np.maximum(env, 1e-9)) ** (1 - 1 / ratio), 1.0)
+    g = np.convolve(np.repeat(gr, block)[:len(mono)], np.ones(64) / 64, mode="same")
+    return x * g[:, None]
+
+
+def voice_dip(x):
+    """Wide ~5 dB dip around 2 kHz, where speech intelligibility lives."""
+    return fft_filter(x, lambda f: 1 - 0.45 * np.exp(-(np.log2(np.maximum(f, 1) / 2000.0) ** 2) / (2 * 0.9 ** 2)))
+
+
 tt = tarr(N)
 fade = np.clip((DUR - tt) / 0.6, 0, 1)[:, None]
-# the bed sits ~8 dB under the effects so a voice can go on top
-full = (music * 0.4 + sfx * 0.95 + wet * 0.18) * fade
-fx_only = (sfx * 0.95 + wet * 0.1) * fade
+sfx = compress(sfx / np.max(np.abs(sfx)))
+rms = lambda x: np.sqrt(np.mean(x ** 2))
+bed = voice_dip(music + wet * 0.5)
+bed *= 0.55 * rms(sfx) / rms(bed)          # music sits under the effects, both sit under the voice
+full = (bed + sfx) * fade
+fx_only = (sfx + voice_dip(wet) * 0.06) * fade
 
 
 def finish(x):

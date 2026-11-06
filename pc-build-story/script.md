@@ -5,7 +5,7 @@ stress test, hand it to a happy customer. Then the CTA: "In San Diego? DM me."
 
 Two versions:
 
-- `out/pc-build-story.mp4`: soft music bed + sound effects, mixed quiet so your voice sits on top
+- `out/pc-build-story.mp4`: soft music bed + sound effects, mixed quiet (about -30 LUFS) so your voice sits on top
 - `out/pc-build-story-sfx-only.mp4`: sound effects only, if you'd rather add a trending sound
 
 ## Voiceover (word for word)
@@ -26,7 +26,9 @@ the exact second. Just start each line when its step comes up.
 
 ### Recording tips
 
-- Record over `pc-build-story.mp4` in CapCut, Instagram or TikTok. The music is already low. If it still fights your voice, turn the original audio down to about half.
+- The background audio is mixed quiet on purpose: about -30 LUFS overall, with every hit capped at -12 dBFS. A normal speaking voice is around -16 to -14 LUFS, so you sit about 10 dB or more on top.
+- Leave the video's original sound at 100% and record at your normal volume, with the phone about a hand's width from your mouth.
+- If your voice still sounds buried (phone far away, quiet delivery), turn the original sound down to about 70%. That works better than pushing your voice up.
 - If you add auto-captions, drag them down over the workbench. The top half already has the on-screen text.
 
 ## Instagram caption

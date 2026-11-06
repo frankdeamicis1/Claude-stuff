@@ -4,7 +4,7 @@ An animated reel (1080×1920, 30 fps, 59 s) for Frank to voice over. Cartoon
 Frank takes a gaming PC from plan to hand-off (plan, buy parts, build,
 stress test, hand it to a happy customer) and ends on "In San Diego? DM me."
 
-- `out/pc-build-story.mp4`: music bed + sound effects, mixed quiet for a voiceover
+- `out/pc-build-story.mp4`: music bed + sound effects, mixed quiet (about -30 LUFS, peaks under -12 dBFS) for a voiceover
 - `out/pc-build-story-sfx-only.mp4`: sound effects only
 - `out/cover.png`: cover frame
 - `script.md`: word-for-word voiceover with timings, captions, DM reply
