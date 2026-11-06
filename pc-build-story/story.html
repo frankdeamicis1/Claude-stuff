@@ -1,0 +1,1213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PC Build Story</title>
+<!--
+  Animated reel for a voiceover: Frank takes a gaming PC from plan to
+  hand-off (plan, buy, build, stress test, sell). 1080x1920, 30 fps, 59 s. Everything is driven by renderFrame(t) so the
+  render script can capture it frame-by-frame. Open this file in Chrome to
+  preview (space = play/pause, drag the slider to scrub).
+-->
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; background: #04060c; }
+  #stage { width: 1080px; height: 1920px; overflow: hidden; background: #070a14; transform-origin: 0 0; }
+  svg { display: block; }
+  .hd { font-family: "Inter Display", "Inter", sans-serif; font-weight: 900; }
+  .bd { font-family: "Inter", "Inter Display", sans-serif; font-weight: 800; }
+  .md { font-family: "Inter", "Inter Display", sans-serif; font-weight: 600; }
+  .mono { font-family: "JetBrains Mono", monospace; font-weight: 800; }
+  .tn { font-feature-settings: "tnum" 1; }
+  body.preview { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; color: #cfd8ee; font: 14px Inter, system-ui, sans-serif; }
+  #ui { display: none; gap: 8px; align-items: center; width: min(540px, 92vw); }
+  body.preview #ui { display: flex; }
+  #scrub { flex: 1; }
+  button { font: inherit; padding: 4px 10px; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="stage"><svg id="svg" width="1080" height="1920" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
+<div id="ui"><button id="play">Pause</button><input id="scrub" type="range" min="0" max="59" step="0.0333" value="0"><span id="tc">0.00s</span></div>
+<script>
+'use strict';
+const W = 1080, H = 1920, FPS = 30, DUR = 59;
+const toDesign = T => T, toReal = t => t;
+const RENDER = /[?&]render=1/.test(location.search);
+const svg = document.getElementById('svg');
+
+/* ------------------------------------------------------------------ utils */
+const clamp = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, k) => a + (b - a) * k;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const EASE = {
+  lin: x => x,
+  in: x => x * x * x,
+  out: x => 1 - Math.pow(1 - x, 3),
+  inOut: x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2,
+  outBack: x => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); },
+  outBig: x => { const c1 = 2.4, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); },
+  outExpo: x => x >= 1 ? 1 : 1 - Math.pow(2, -10 * x),
+  sine: x => -(Math.cos(Math.PI * x) - 1) / 2,
+  step: x => x < 1 ? 0 : 1,
+};
+const mix = (a, b, k) => Array.isArray(a) ? a.map((v, i) => v + (b[i] - v) * k) : a + (b - a) * k;
+function tk(keys, t) {               // keyframes: [time, value, easeIntoThisKey]
+  if (t <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++) {
+    if (t <= keys[i][0]) {
+      const [t0, v0] = keys[i - 1], [t1, v1, e] = keys[i];
+      const p = t1 > t0 ? (t - t0) / (t1 - t0) : 1;
+      return mix(v0, v1, EASE[e || 'inOut'](p));
+    }
+  }
+  return keys[keys.length - 1][1];
+}
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const fmt = n => Math.round(n).toLocaleString('en-US');
+const $ = id => document.getElementById(id);
+const P = (x, y) => `${x.toFixed(1)},${y.toFixed(1)}`;
+const pulse = (t, t0, a, h, r) => t < t0 || t > t0 + a + h + r ? 0 : t < t0 + a ? (t - t0) / a : t < t0 + a + h ? 1 : 1 - (t - t0 - a - h) / r;
+
+/* ---------------------------------------------------------------- palette */
+const C = {
+  green: '#3DFF8F', blue: '#5B8CFF', red: '#FF6B4A', yellow: '#FFD23F', mag: '#FF3DCB', cyan: '#2EE6FF',
+  ink: '#FFFFFF', ink2: '#C9D3EA', ink3: '#93A1C2',
+  out: '#140e0b', skin: '#c98d66', skinD: '#a8714f', skinL: '#e2ac86',
+  hair: '#1c1411', hairM: '#2a1f1a', hairL: '#3d2e26',
+  cap: '#151518', seam: '#2c2c33', patch: '#cdb68b', patchD: '#8e7a55',
+  shirt: '#3e4c6c', shirtD: '#2c3750', lip: '#b0665f', mouth: '#2a1210',
+};
+
+/* ---------------------------------------------------- character geometry
+   Local coords: origin = neck joint, +y down. Head ~ -390..+95, torso below. */
+const FACE_D = 'M -104,-264 C -116,-232 -122,-192 -118,-150 C -114,-104 -88,-50 -46,-30 C -18,-18 18,-18 46,-30 C 88,-50 114,-104 118,-150 C 122,-192 116,-232 104,-264 Z';
+const HAIRB_D = 'M -126,-290 C -158,-258 -170,-210 -164,-166 C -160,-134 -184,-110 -180,-76 C -177,-48 -200,-30 -194,0 C -190,22 -208,34 -198,54 C -186,70 -160,64 -150,52 C -140,64 -118,64 -106,50 L 106,50 C 118,64 140,64 150,52 C 160,64 186,70 198,54 C 208,34 190,22 194,0 C 200,-30 177,-48 180,-76 C 184,-110 160,-134 164,-166 C 170,-210 158,-258 126,-290 Z';
+const BEARD_D = 'M -112,-212 C -120,-180 -124,-140 -126,-104 C -128,-64 -120,-30 -104,0 C -98,22 -88,36 -72,48 Q -60,62 -44,64 Q -32,78 -15,74 Q 0,86 15,74 Q 32,78 44,64 Q 60,62 72,48 C 88,36 98,22 104,0 C 120,-30 128,-64 126,-104 C 124,-140 120,-180 112,-212 C 100,-196 96,-168 88,-148 C 80,-130 66,-116 50,-108 C 30,-102 14,-106 0,-104 C -14,-106 -30,-102 -50,-108 C -66,-116 -80,-130 -88,-148 C -96,-168 -100,-196 -112,-212 Z';
+const MUST_D = 'M -54,-96 C -44,-118 -16,-118 0,-108 C 16,-118 44,-118 54,-96 C 58,-84 52,-70 40,-72 C 28,-74 14,-84 0,-84 C -14,-84 -28,-74 -40,-72 C -52,-70 -58,-84 -54,-96 Z';
+const TORSO_D = 'M -96,10 C -146,16 -200,36 -226,76 C -248,112 -256,172 -256,262 L -256,760 L 256,760 L 256,262 C 256,172 248,112 226,76 C 200,36 146,16 96,10 C 64,46 -64,46 -96,10 Z';
+const EYE_D = 'M -21,0 C -12,-12 12,-12 21,0 C 12,10 -12,10 -21,0 Z';
+const CAP_D = 'M -134,-250 C -140,-326 -88,-388 0,-390 C 88,-388 140,-326 134,-250 Q 0,-232 -134,-250 Z';
+/* ------------------------------------------------------------------ defs */
+function defs() {
+  return `<defs>
+  <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0c1226"/><stop offset=".6" stop-color="#0a0e1d"/><stop offset="1" stop-color="#05070f"/></linearGradient>
+  <linearGradient id="wallGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1022"/><stop offset="1" stop-color="#121a33"/></linearGradient>
+  <radialGradient id="gMag"><stop offset="0" stop-color="#c026d3" stop-opacity=".55"/><stop offset="1" stop-color="#c026d3" stop-opacity="0"/></radialGradient>
+  <radialGradient id="gCyan"><stop offset="0" stop-color="#06b6d4" stop-opacity=".5"/><stop offset="1" stop-color="#06b6d4" stop-opacity="0"/></radialGradient>
+  <radialGradient id="gGreen"><stop offset="0" stop-color="#3DFF8F" stop-opacity=".6"/><stop offset="1" stop-color="#3DFF8F" stop-opacity="0"/></radialGradient>
+  <radialGradient id="gWhite"><stop offset="0" stop-color="#ffffff" stop-opacity="1"/><stop offset=".4" stop-color="#ffffff" stop-opacity=".5"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+  <linearGradient id="rgb" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ff3dcb"/><stop offset=".5" stop-color="#8b5cf6"/><stop offset="1" stop-color="#2ee6ff"/></linearGradient>
+  <linearGradient id="rgbV" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2ee6ff"/><stop offset=".5" stop-color="#8b5cf6"/><stop offset="1" stop-color="#ff3dcb"/></linearGradient>
+  <linearGradient id="shirtGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2d3852"/><stop offset=".22" stop-color="#3e4c6c"/><stop offset=".8" stop-color="#3e4c6c"/><stop offset="1" stop-color="#2b3550"/></linearGradient>
+  <linearGradient id="benchGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a1f2e"/><stop offset="1" stop-color="#0c0f18"/></linearGradient>
+  <linearGradient id="topShade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#060914" stop-opacity=".94"/><stop offset=".8" stop-color="#060914" stop-opacity=".82"/><stop offset="1" stop-color="#060914" stop-opacity="0"/></linearGradient>
+  <radialGradient id="vignette" cx=".5" cy=".5" r=".72"><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".6"/></radialGradient>
+  <linearGradient id="streak" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".9"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  <linearGradient id="glassRefl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#cfe6ff" stop-opacity=".16"/><stop offset=".45" stop-color="#cfe6ff" stop-opacity=".03"/><stop offset="1" stop-color="#cfe6ff" stop-opacity=".1"/></linearGradient>
+  <linearGradient id="laneGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0d1430"/><stop offset="1" stop-color="#070b1a"/></linearGradient>
+  <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="glowSm" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="shadow" x="-20%" y="-30%" width="140%" height="170%"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#000" flood-opacity=".75"/></filter>
+  <filter id="blur24" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="24"/></filter>
+  <filter id="blur6"><feGaussianBlur stdDeviation="6"/></filter>
+  <pattern id="peg" width="46" height="46" patternUnits="userSpaceOnUse"><circle cx="23" cy="23" r="5" fill="#05070e"/><path d="M 18,20 A 5 5 0 0 1 28,20" fill="none" stroke="#202a4a" stroke-width="1.6"/></pattern>
+  <pattern id="pxgrid" width="12.5" height="12.5" patternUnits="userSpaceOnUse"><path d="M12.5 0 L0 0 0 12.5" fill="none" stroke="#000" stroke-opacity=".38" stroke-width="1.4"/></pattern>
+  <pattern id="vents" width="14" height="10" patternUnits="userSpaceOnUse"><rect x="2" y="3" width="10" height="4" rx="2" fill="#0a0d13"/></pattern>
+  <clipPath id="beardClip"><path d="${BEARD_D}"/></clipPath>
+  <clipPath id="hairClip"><path d="${HAIRB_D}"/></clipPath>
+  <clipPath id="eyeClip"><path d="${EYE_D}"/></clipPath>
+  <clipPath id="scanClip"><rect id="scanRect" x="-400" y="-225" width="800" height="0"/></clipPath>
+  <clipPath id="laneClipA"><rect x="-420" y="-250" width="840" height="236" rx="10"/></clipPath>
+  <clipPath id="laneClipB"><rect x="-420" y="14" width="840" height="236" rx="10"/></clipPath>
+</defs>`;
+}
+
+/* ------------------------------------------------------------- Frank body */
+function eye(s) {
+  return `<path d="${EYE_D}" fill="#f1ebe3"/>
+    <g clip-path="url(#eyeClip)"><g id="iris${s}"><circle r="9.6" fill="#3a2416"/><circle r="4.7" fill="#0d0705"/><circle cx="3.2" cy="-3.2" r="2.4" fill="#fff"/></g></g>
+    <path d="M -14,8 C -6,11 6,11 14,8" stroke="${C.skinD}" stroke-width="2" fill="none" opacity=".7"/>
+    <g id="lid${s}"><path id="lidF${s}" d="M -26,-1 C -12,-6 12,-6 26,-1 L 26,-30 L -26,-30 Z" fill="${C.skin}"/>
+      <path id="lidL${s}" d="M -23,-1 C -12,-6 12,-6 23,-1" stroke="#160d09" stroke-width="4.5" fill="none" stroke-linecap="round"/></g>`;
+}
+function strands(seed, n, box, color, w, op) {
+  const r = rng(seed); let s = '';
+  for (let i = 0; i < n; i++) {
+    const x = lerp(box[0], box[2], r()), y = lerp(box[1], box[3], r());
+    const dx = (r() - .5) * 18, len = 18 + r() * 26, curl = (r() - .5) * 16;
+    s += `<path d="M ${P(x, y)} q ${P(curl, len * .5)} ${P(dx, len)}" stroke="${color}" stroke-width="${w}" fill="none" stroke-linecap="round" opacity="${op}"/>`;
+  }
+  return s;
+}
+function frankBody() {
+  return `<g id="fBody">
+   <g id="fTorso">
+    <path d="${TORSO_D}" fill="url(#shirtGrad)" stroke="${C.out}" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M -96,10 C -64,46 64,46 96,10" fill="none" stroke="${C.shirtD}" stroke-width="14"/>
+    <path d="M -214,150 C -204,250 -200,360 -204,520" stroke="${C.shirtD}" stroke-width="5" fill="none" opacity=".7"/>
+    <path d="M 214,150 C 204,250 200,360 204,520" stroke="${C.shirtD}" stroke-width="5" fill="none" opacity=".7"/>
+    <path d="M -40,300 C -20,330 20,334 40,306" stroke="${C.shirtD}" stroke-width="4" fill="none" opacity=".5"/>
+    <path d="M 86,170 L 170,170 L 170,248 Q 128,266 86,248 Z" fill="#3a4767" stroke="#26304a" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M 90,184 L 166,184" stroke="#26304a" stroke-width="2.5" stroke-dasharray="7 5"/>
+   </g>
+   <g id="fHead"><g transform="scale(1.1,1)">
+    <path d="${HAIRB_D}" fill="${C.hair}" stroke="${C.out}" stroke-width="6" stroke-linejoin="round"/>
+    <g clip-path="url(#hairClip)">
+      <path d="M -146,-220 C -156,-170 -140,-140 -158,-96 C -170,-62 -160,-30 -178,8 C -186,26 -180,40 -186,52" stroke="${C.hairL}" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M -132,-160 C -142,-122 -128,-94 -146,-50 C -156,-20 -144,10 -160,40" stroke="${C.hairL}" stroke-width="4" fill="none" stroke-linecap="round" opacity=".8"/>
+      <path d="M 146,-220 C 156,-170 140,-140 158,-96 C 170,-62 160,-30 178,8 C 186,26 180,40 186,52" stroke="${C.hairL}" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M 132,-160 C 142,-122 128,-94 146,-50 C 156,-20 144,10 160,40" stroke="${C.hairL}" stroke-width="4" fill="none" stroke-linecap="round" opacity=".8"/>
+    </g>
+    <path d="${FACE_D}" fill="${C.skin}" stroke="${C.out}" stroke-width="6"/>
+    <path d="M -100,-250 Q 0,-228 100,-250 L 100,-232 Q 0,-212 -100,-232 Z" fill="${C.skinD}" opacity=".5"/>
+    <ellipse cx="-80" cy="-128" rx="22" ry="12" fill="#d77f66" opacity=".22"/>
+    <ellipse cx="80" cy="-128" rx="22" ry="12" fill="#d77f66" opacity=".22"/>
+    <path d="M -121,-258 C -130,-226 -128,-194 -117,-172 C -108,-196 -104,-228 -98,-254 Z" fill="${C.hair}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M 121,-258 C 130,-226 128,-194 117,-172 C 108,-196 104,-228 98,-254 Z" fill="${C.hair}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+    <g id="fBeard">
+      <path d="${BEARD_D}" fill="${C.hair}" stroke="${C.out}" stroke-width="6" stroke-linejoin="round"/>
+      <g clip-path="url(#beardClip)">${strands(7, 46, [-122, -170, 122, 80], C.hairL, 3.2, .85)}${strands(11, 20, [-110, -120, 110, 70], '#120c0a', 3, .7)}${strands(23, 14, [-80, -40, 80, 70], '#8e877f', 2.4, .7)}</g>
+    </g>
+    <g id="mN">
+      <path d="M -16,-79 C -8,-76 8,-76 16,-79 C 12,-69 -12,-69 -16,-79 Z" fill="${C.lip}" stroke="${C.out}" stroke-width="2.5"/>
+    </g>
+    <g id="mS" opacity="0">
+      <path d="M -28,-86 C -12,-78 12,-78 28,-86 C 24,-62 -24,-62 -28,-86 Z" fill="${C.mouth}" stroke="${C.out}" stroke-width="3"/>
+      <path d="M -24,-84 C -10,-78 10,-78 24,-84 L 22,-77 C 8,-73 -8,-73 -22,-77 Z" fill="#f4efe8"/>
+      <path d="M -16,-66 C -6,-62 6,-62 16,-66 C 10,-60 -10,-60 -16,-66 Z" fill="${C.lip}"/>
+    </g>
+    <g id="mO" opacity="0">
+      <ellipse cx="0" cy="-72" rx="15" ry="18" fill="${C.mouth}" stroke="${C.out}" stroke-width="3"/>
+      <ellipse cx="0" cy="-61" rx="9" ry="5" fill="#c46b6b"/>
+    </g>
+    <path d="${MUST_D}" fill="${C.hairM}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M -46,-100 q -6,10 -4,20 M -30,-104 q -4,10 -2,20 M -14,-102 q -2,8 0,16 M 46,-100 q 6,10 4,20 M 30,-104 q 4,10 2,20 M 14,-102 q 2,8 0,16" stroke="${C.hairL}" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <g id="fNose">
+      <path d="M -10,-170 C -14,-150 -22,-138 -30,-126 C -38,-112 -26,-102 -14,-108 C -8,-100 8,-100 14,-108 C 26,-102 38,-112 30,-126 C 22,-138 14,-150 10,-170 Z" fill="${C.skin}"/>
+      <path d="M -30,-126 C -38,-112 -26,-102 -14,-108 C -8,-100 8,-100 14,-108 C 26,-102 38,-112 30,-126" stroke="${C.out}" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <path d="M -10,-168 C -13,-150 -18,-140 -24,-130" stroke="${C.skinD}" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <ellipse cx="3" cy="-124" rx="8" ry="5.5" fill="${C.skinL}" opacity=".75"/>
+      <ellipse cx="-13" cy="-110" rx="5.5" ry="3" fill="#5a3324"/><ellipse cx="13" cy="-110" rx="5.5" ry="3" fill="#5a3324"/>
+    </g>
+    <g id="eyeL" transform="translate(-54,-174)">${eye('L')}</g>
+    <g id="eyeR" transform="translate(54,-174)">${eye('R')}</g>
+    <g id="browL"><path d="M -96,-210 C -82,-230 -48,-236 -20,-224 L -20,-210 C -48,-220 -78,-218 -96,-202 Z" fill="${C.hair}" stroke="${C.out}" stroke-width="3" stroke-linejoin="round"/></g>
+    <g id="browR"><path d="M 96,-210 C 82,-230 48,-236 20,-224 L 20,-210 C 48,-220 78,-218 96,-202 Z" fill="${C.hair}" stroke="${C.out}" stroke-width="3" stroke-linejoin="round"/></g>
+    <g id="fGlasses">
+      <rect x="-103" y="-211" width="96" height="70" rx="14" fill="#b9d7ff" fill-opacity=".10" stroke="#0d0d10" stroke-width="11"/>
+      <rect x="7" y="-211" width="96" height="70" rx="14" fill="#b9d7ff" fill-opacity=".10" stroke="#0d0d10" stroke-width="11"/>
+      <path d="M -8,-190 Q 0,-198 8,-190" stroke="#0d0d10" stroke-width="9" fill="none"/>
+      <path d="M -103,-198 L -123,-194 M 103,-198 L 123,-194" stroke="#0d0d10" stroke-width="9" stroke-linecap="round"/>
+      <path d="M -86,-152 L -60,-200 M 24,-152 L 50,-200" stroke="#fff" stroke-opacity=".26" stroke-width="7" stroke-linecap="round"/>
+      <path d="M -70,-150 L -54,-178 M 40,-150 L 56,-178" stroke="#fff" stroke-opacity=".16" stroke-width="4" stroke-linecap="round"/>
+    </g>
+    <g id="fCap">
+      <path d="${CAP_D}" fill="${C.cap}" stroke="${C.out}" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M 0,-390 L 0,-306 M -74,-376 Q -102,-322 -108,-254 M 74,-376 Q 102,-322 108,-254" stroke="${C.seam}" stroke-width="3" fill="none"/>
+      <path d="M -122,-300 Q -60,-352 -20,-372" stroke="#2a2a31" stroke-width="10" fill="none" stroke-linecap="round" opacity=".7"/>
+      <circle cx="0" cy="-388" r="8" fill="${C.cap}" stroke="${C.out}" stroke-width="3"/>
+      <path d="M -56,-247 C -56,-286 -30,-304 0,-304 C 30,-304 56,-286 56,-247 Z" fill="${C.hairM}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M -40,-262 C -30,-280 -12,-292 6,-292" stroke="${C.hairL}" stroke-width="3" fill="none"/>
+      <rect x="-76" y="-268" width="144" height="32" rx="15" fill="${C.strap}"/>
+      <g clip-path="url(#strapClip)"><rect x="-76" y="-268" width="68" height="32" fill="${C.cow}"/>
+        <ellipse cx="-62" cy="-261" rx="9" ry="5" transform="rotate(-20,-62,-261)" fill="${C.cowSpot}"/><ellipse cx="-37" cy="-245" rx="9" ry="6" transform="rotate(14,-37,-245)" fill="${C.cowSpot}"/>
+        <ellipse cx="-19" cy="-263" rx="6" ry="4" fill="${C.cowSpot}"/><ellipse cx="-70" cy="-240" rx="6" ry="4" fill="${C.cowSpot}"/></g>
+      <rect x="-76" y="-268" width="144" height="32" rx="15" fill="none" stroke="${C.strapD}" stroke-width="3"/>
+      <path d="M -4,-261 H 58 M -4,-243 H 58" stroke="#a5835d" stroke-width="2" stroke-dasharray="5 4"/>
+      <circle cx="-56" cy="-251" r="3.4" fill="#2a1d14"/><circle cx="-43" cy="-251" r="3.4" fill="#2a1d14"/><circle cx="-30" cy="-251" r="3.4" fill="#2a1d14"/>
+    </g>
+   </g></g>
+  </g>`;
+}
+function frankArms() {
+  const arm = s => `<g id="arm${s}">
+      <path id="a${s}o1" stroke="${C.out}" stroke-width="98" stroke-linecap="round" fill="none"/>
+      <path id="a${s}o2" stroke="${C.out}" stroke-width="84" stroke-linecap="round" fill="none"/>
+      <path id="a${s}s1" stroke="${C.skin}" stroke-width="86" stroke-linecap="round" fill="none"/>
+      <path id="a${s}s2" stroke="${C.skin}" stroke-width="72" stroke-linecap="round" fill="none"/>
+      <g id="a${s}hair"><path d="M -16,46 l 6,10 M 10,70 l 6,10 M -8,98 l 5,9 M 14,118 l 4,9 M -18,128 l 5,8 M 2,40 l 5,9" stroke="#6b4632" stroke-width="3" stroke-linecap="round" opacity=".55"/></g>
+      <circle id="a${s}slOc" r="64" fill="${C.out}"/>
+      <path id="a${s}slO" stroke="${C.out}" stroke-width="128" fill="none"/>
+      <circle id="a${s}slFc" r="58" fill="${C.shirt}"/>
+      <path id="a${s}slF" stroke="${C.shirt}" stroke-width="116" fill="none"/>
+      <path id="a${s}hem2" stroke="${C.shirtD}" stroke-width="6" fill="none"/>
+      <path id="a${s}hem" stroke="${C.out}" stroke-width="6" fill="none" stroke-linecap="round"/>
+    </g>`;
+  return `<g id="fArms">${arm('L')}${arm('R')}</g>`;
+}
+function handShapes(s) {
+  const st = `fill="${C.skin}" stroke="${C.out}" stroke-width="5" stroke-linejoin="round"`;
+  const ln = `stroke="${C.out}" stroke-width="3" fill="none" stroke-linecap="round" opacity=".75"`;
+  return `
+   <g id="h${s}_relax">
+     <path d="M -30,2 C -37,28 -37,60 -29,80 C -23,95 -9,100 2,100 C 16,100 28,94 33,78 C 38,58 37,28 31,2 Z" ${st}/>
+     <path d="M 27,16 C 44,22 56,40 52,56 C 48,67 35,63 30,50 Z" ${st}/>
+     <path d="M -12,64 Q -12,82 -10,94 M 4,66 Q 4,84 6,98 M 18,64 Q 19,80 21,90" ${ln}/>
+   </g>
+   <g id="h${s}_fist">
+     <path d="M -33,2 C -39,22 -39,52 -33,68 C -25,82 25,82 33,68 C 39,52 39,22 33,2 Z" ${st}/>
+     <path d="M -22,56 Q -19,72 -11,75 M -4,58 Q 0,74 7,76 M 13,57 Q 18,71 25,70" ${ln}/>
+     <path d="M 31,24 C 18,34 0,40 -14,42 C -20,44 -19,52 -12,53 C 4,53 22,49 35,41 Z" fill="${C.skin}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+   </g>
+   <g id="h${s}_point">
+     <path d="M 8,44 L 10,122 C 10,134 28,134 28,122 L 28,44 Z" ${st}/>
+     <path d="M -33,2 C -39,20 -38,46 -32,60 C -24,72 14,72 22,60 C 30,46 36,20 33,2 Z" ${st}/>
+     <path d="M -24,48 Q -20,62 -12,64 M -8,52 Q -4,64 4,64" ${ln}/>
+     <path d="M 32,18 C 40,26 40,40 30,46 C 20,52 6,50 -4,44 C -10,40 -8,32 0,32 C 10,34 20,32 32,18 Z" fill="${C.skin}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+   </g>
+   <g id="h${s}_flat">
+     <rect x="-28" y="38" width="14" height="60" rx="7" ${st}/>
+     <rect x="-14" y="38" width="14" height="70" rx="7" ${st}/>
+     <rect x="0" y="38" width="14" height="68" rx="7" ${st}/>
+     <rect x="14" y="38" width="13" height="56" rx="6.5" ${st}/>
+     <path d="M -30,2 C -34,18 -33,40 -28,52 L 28,52 C 33,40 34,18 30,2 Z" ${st}/>
+     <path d="M 24,12 C 42,20 54,40 50,58 C 47,67 37,64 33,53 Z" ${st}/>
+   </g>
+   <g id="h${s}_spread">
+     <g transform="translate(-19,44) rotate(14)"><rect x="-6.5" y="-6" width="13" height="58" rx="6.5" ${st}/></g>
+     <g transform="translate(-7,48) rotate(5)"><rect x="-6.5" y="-6" width="13" height="70" rx="6.5" ${st}/></g>
+     <g transform="translate(6,48) rotate(-4)"><rect x="-6.5" y="-6" width="13" height="68" rx="6.5" ${st}/></g>
+     <g transform="translate(18,44) rotate(-13)"><rect x="-6" y="-6" width="12" height="54" rx="6" ${st}/></g>
+     <path d="M -29,2 C -34,16 -32,38 -24,50 L 26,50 C 33,38 34,16 29,2 Z" ${st}/>
+     <g transform="translate(-24,18) rotate(62)"><rect x="-7" y="-4" width="14" height="48" rx="7" ${st}/></g>
+   </g>
+   <g id="h${s}_thumb">
+     <path d="M 4,56 L 4,116 C 4,130 28,130 28,116 L 28,54 Z" ${st}/>
+     <path d="M -33,2 C -39,22 -39,52 -33,66 C -25,78 25,78 33,66 C 39,52 39,22 33,2 Z" ${st}/>
+     <path d="M -27,24 Q -2,30 22,24 M -28,42 Q -2,48 22,42 M -26,58 Q -4,64 18,58" ${ln}/>
+   </g>`;
+}
+function frankHands() {
+  return `<g id="fHands"><g id="hL">${handShapes('L')}</g><g id="hR"><g transform="scale(-1,1)">${handShapes('R')}</g></g></g>`;
+}
+
+/* ------------------------------------------------------------- GPU art */
+function gpuFront(id) {
+  let fans = '';
+  for (let i = 0; i < 3; i++) {
+    const cx = -140 + i * 140; let blades = '';
+    for (let b = 0; b < 9; b++) blades += `<path d="M 0,-14 C 16,-28 26,-46 18,-60 C 4,-56 -6,-36 -7,-16 Z" transform="rotate(${b * 40})" fill="#2c3240" stroke="#0b0d12" stroke-width="2"/>`;
+    fans += `<g transform="translate(${cx},2)">
+      <circle r="64" fill="#0b0d12" stroke="#343a48" stroke-width="5"/>
+      <circle r="58" fill="none" stroke="url(#rgb)" stroke-width="3.5" class="${id}-ring" opacity=".85"/>
+      <g class="${id}-bl">${blades}</g>
+      <circle r="19" fill="#171a21" stroke="#3c4352" stroke-width="3"/>
+      <circle r="6" fill="${C.green}" opacity=".85"/></g>`;
+  }
+  let fingers = '';
+  for (let i = 0; i < 18; i++) fingers += `<rect x="${-146 + i * 8}" y="88" width="5" height="12" fill="#a77c22"/>`;
+  return `<g id="${id}">
+    <rect x="-150" y="84" width="150" height="18" rx="2" fill="#d6a63c" stroke="${C.out}" stroke-width="3"/>${fingers}
+    <rect x="-236" y="-98" width="18" height="196" rx="3" fill="#9aa3b2" stroke="${C.out}" stroke-width="4"/>
+    <path d="M -222,-82 Q -222,-90 -214,-90 L 214,-90 Q 224,-90 224,-80 L 224,80 Q 224,90 214,90 L -214,90 Q -222,90 -222,82 Z" fill="#1b1f28" stroke="${C.out}" stroke-width="6"/>
+    <path d="M -214,-74 L -60,-74 L -44,-84 L 60,-84 L 76,-74 L 214,-74" stroke="#3a4152" stroke-width="4" fill="none"/>
+    <path d="M -214,74 L -150,74 L -136,84 M 136,84 L 150,74 L 214,74" stroke="#3a4152" stroke-width="4" fill="none"/>
+    <rect x="-200" y="-90" width="400" height="7" rx="3.5" fill="url(#rgb)"/>
+    ${fans}
+  </g>`;
+}
+function gpuSide() {          // side profile, as it sits in the case (origin = top-left)
+  return `<g>
+    <rect x="0" y="0" width="292" height="62" rx="8" fill="#1b1f28" stroke="${C.out}" stroke-width="4"/>
+    <rect x="10" y="4" width="272" height="7" rx="3.5" fill="url(#rgb)" class="rgbGlow"/>
+    <path d="M 14,48 L 120,48 L 132,40 L 278,40" stroke="#3a4152" stroke-width="3" fill="none"/>
+    <rect x="150" y="18" width="88" height="16" rx="4" fill="#0e1117" stroke="#3a4152" stroke-width="2"/>
+    <text x="194" y="31" text-anchor="middle" class="bd" font-size="13" fill="#7f8aa3" letter-spacing="2">GPU</text>
+    <rect x="290" y="-8" width="10" height="80" rx="2" fill="#9aa3b2" stroke="${C.out}" stroke-width="3"/>
+  </g>`;
+}
+function fan(id, r) {
+  let bl = '';
+  for (let b = 0; b < 7; b++) bl += `<path d="M 0,-${r * .3} C ${r * .3},-${r * .5} ${r * .42},-${r * .78} ${r * .28},-${r * .92} C ${r * .06},-${r * .86} -${r * .1},-${r * .58} -${r * .1},-${r * .32} Z" transform="rotate(${b * 51.4})" fill="#2a303d"/>`;
+  return `<g>
+    <circle r="${r}" fill="#0b0d12" stroke="#2a303c" stroke-width="5"/>
+    <circle r="${r - 4}" fill="none" stroke="url(#rgb)" stroke-width="4" class="fanRing" opacity="0"/>
+    <g class="fanBl" id="${id}">${bl}</g>
+    <circle r="${r * .28}" fill="#151820" stroke="#353c4a" stroke-width="2"/></g>`;
+}
+
+/* ------------------------------------------------------------ world */
+function worldBack() {
+  let shelfL = '', shelfR = '';
+  shelfL += `<rect x="40" y="690" width="120" height="70" rx="6" fill="#1a2140" stroke="#0a0d18" stroke-width="3"/><rect x="58" y="708" width="84" height="10" rx="3" fill="#2b3563"/>`;
+  shelfL += `<rect x="170" y="640" width="90" height="120" rx="6" fill="#151c38" stroke="#0a0d18" stroke-width="3"/><rect x="184" y="660" width="62" height="8" rx="3" fill="#2a3666"/>`;
+  shelfR += `<rect x="870" y="660" width="170" height="100" rx="6" fill="#18203f" stroke="#0a0d18" stroke-width="3"/><rect x="890" y="684" width="96" height="10" rx="3" fill="#2f3b6e"/><rect x="890" y="704" width="60" height="8" rx="3" fill="#26305c"/>`;
+  shelfR += `<rect x="1050" y="700" width="70" height="60" rx="6" fill="#141b36" stroke="#0a0d18" stroke-width="3"/>`;
+  return `<g id="wb">
+    <rect x="-600" y="-400" width="2400" height="1960" fill="url(#wallGrad)"/>
+    <rect x="-600" y="-400" width="2400" height="1960" fill="url(#peg)" opacity=".85"/>
+    <ellipse cx="400" cy="900" rx="620" ry="520" fill="url(#gMag)" opacity=".75"/>
+    <ellipse cx="930" cy="980" rx="560" ry="520" fill="url(#gCyan)" opacity=".7"/>
+    <g>${shelfL}<rect x="20" y="760" width="300" height="16" rx="4" fill="#232b47" stroke="#0a0d18" stroke-width="3"/></g>
+    <g>${shelfR}<rect x="840" y="760" width="300" height="16" rx="4" fill="#232b47" stroke="#0a0d18" stroke-width="3"/></g>
+    <rect x="-600" y="1010" width="2400" height="7" fill="url(#rgb)" opacity=".35" filter="url(#blur6)"/>
+  </g>`;
+}
+/* ------------------------------------------------------------ text helpers */
+function tx(id, x, y, size, cls, fill, content, extra = '') {
+  return `<g id="${id}" opacity="0" transform="translate(${x},${y})"><text x="0" y="0" text-anchor="middle" font-size="${size}" class="${cls}" fill="${fill}" ${extra}>${content}</text></g>`;
+}
+const hl = (s, c) => `<tspan fill="${c}">${s}</tspan>`;
+
+/* ------------------------------------------------------------ particles */
+function particles() {
+  const r = rng(42); let s = '';
+  const cols = [C.cyan, C.mag, C.green, '#8b5cf6'];
+  for (let i = 0; i < 34; i++) {
+    s += `<circle class="pt" data-x="${(r() * 1080).toFixed(1)}" data-y="${(r() * 1920).toFixed(1)}" data-s="${(10 + r() * 30).toFixed(1)}" data-p="${(r() * 6.28).toFixed(2)}" r="${(1.5 + r() * 3.5).toFixed(1)}" fill="${cols[i % 4]}" opacity=".4"/>`;
+  }
+  return `<g id="pts">${s}</g>`;
+}
+
+/* ------------------------------------------------------------ rig: arms/IK */
+const SHO = { L: [-212, 104], R: [212, 104] }, L1 = 190, L2 = 170;
+const PREF = { L: [-0.55, 0.83], R: [0.55, 0.83] };
+function solveArm(s, T, pref, k = 1) {
+  const S = SHO[s]; let dx = T[0] - S[0], dy = T[1] - S[1]; let d = Math.hypot(dx, dy) || 1e-3;
+  const L1 = 190 * k, L2 = 170 * k;
+  const maxD = L1 + L2 - 1, minD = Math.abs(L1 - L2) + 30;
+  if (d > maxD) { const k = maxD / d; dx *= k; dy *= k; d = maxD; } else if (d < minD) { const k = minD / d; dx *= k; dy *= k; d = minD; }
+  const ux = dx / d, uy = dy / d, a = (L1 * L1 - L2 * L2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+  const nx = -uy, ny = ux, pr = pref || PREF[s];
+  const sg = (nx * pr[0] + ny * pr[1]) >= 0 ? 1 : -1;
+  return { S, E: [S[0] + ux * a + nx * h * sg, S[1] + uy * a + ny * h * sg], W: [S[0] + dx, S[1] + dy] };
+}
+const angTo = (a, b) => Math.atan2(-(b[0] - a[0]), b[1] - a[1]) * 180 / Math.PI;
+function drawArm(s, A) {
+  const { S, E, W: Wr } = A;
+  const p1 = `M${P(S[0], S[1])} L${P(E[0], E[1])}`, p2 = `M${P(E[0], E[1])} L${P(Wr[0], Wr[1])}`;
+  $(`a${s}o1`).setAttribute('d', p1); $(`a${s}s1`).setAttribute('d', p1);
+  $(`a${s}o2`).setAttribute('d', p2); $(`a${s}s2`).setAttribute('d', p2);
+  const ux = E[0] - S[0], uy = E[1] - S[1], len = Math.hypot(ux, uy) || 1, vx = ux / len, vy = uy / len, px = -vy, py = vx;
+  const sl = Math.min(len * .62, 118), B = [S[0] - vx * 4, S[1] - vy * 4], Pp = [S[0] + vx * sl, S[1] + vy * sl], hw = 61;
+  const dS = `M${P(B[0], B[1])} L${P(Pp[0], Pp[1])}`;
+  $(`a${s}slO`).setAttribute('d', dS); $(`a${s}slF`).setAttribute('d', dS);
+  for (const id of [`a${s}slOc`, `a${s}slFc`]) { $(id).setAttribute('cx', B[0].toFixed(1)); $(id).setAttribute('cy', B[1].toFixed(1)); }
+  $(`a${s}hem`).setAttribute('d', `M${P(Pp[0] + px * hw, Pp[1] + py * hw)} L${P(Pp[0] - px * hw, Pp[1] - py * hw)}`);
+  const Ph = [Pp[0] - vx * 9, Pp[1] - vy * 9];
+  $(`a${s}hem2`).setAttribute('d', `M${P(Ph[0] + px * (hw - 4), Ph[1] + py * (hw - 4))} L${P(Ph[0] - px * (hw - 4), Ph[1] - py * (hw - 4))}`);
+  $(`a${s}hair`).setAttribute('transform', `translate(${P(E[0], E[1])}) rotate(${angTo(E, Wr).toFixed(1)})`);
+}
+const HANDS = ['relax', 'fist', 'point', 'flat', 'spread', 'thumb'];
+function drawHand(s, A, shape, rot) {
+  const a = rot == null ? angTo(A.E, A.W) : rot;
+  $(`h${s}`).setAttribute('transform', `translate(${P(A.W[0], A.W[1])}) rotate(${a.toFixed(1)})`);
+  for (const h of HANDS) $(`h${s}_${h}`).setAttribute('display', h === shape ? 'inline' : 'none');
+}
+
+/* ================================================================ STORY
+   "I build it start to finish" — plan, buy, build, stress test, hand-off.
+   Everything below is specific to this video; the avatar, PC art and rig
+   above are shared with the first reel. */
+
+Object.assign(C, {
+  orange: '#FFB547', purple: '#C084FC',
+  cuSkin: '#8b5a3c', cuSkinD: '#6e4429', cuHair: '#17100c', hood: '#1f8f8f', hoodD: '#166b6b',
+  strap: '#c9a57a', strapD: '#8a6a48', cow: '#efe4d0', cowSpot: '#5b3d29',
+});
+
+function defs2() {
+  return `<defs>
+    <linearGradient id="hoodGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#156464"/><stop offset=".24" stop-color="#1f8f8f"/><stop offset=".78" stop-color="#1f8f8f"/><stop offset="1" stop-color="#135c5c"/></linearGradient>
+    <linearGradient id="boxGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9ad70"/><stop offset="1" stop-color="#b8894f"/></linearGradient>
+    <linearGradient id="cardGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#121a38"/><stop offset="1" stop-color="#0b1126"/></linearGradient>
+    <linearGradient id="safeZone" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3DFF8F" stop-opacity=".18"/><stop offset="1" stop-color="#3DFF8F" stop-opacity=".03"/></linearGradient>
+    <clipPath id="strapClip"><rect x="-76" y="-268" width="144" height="32" rx="15"/></clipPath>
+  </defs>`;
+}
+
+/* ------------------------------------------------------------ icons (stroke, centred on 0,0, ~48px) */
+const ICON = {
+  plan: `<rect x="-15" y="-17" width="30" height="38" rx="4"/><rect x="-8" y="-23" width="16" height="9" rx="3"/><path d="M -8,-3 h16 M -8,5 h16 M -8,13 h10"/>`,
+  buy: `<path d="M -22,-15 h7 l6,24 h20 l5,-17 h-29"/><circle cx="-5" cy="16" r="3.5"/><circle cx="12" cy="16" r="3.5"/>`,
+  build: `<g transform="rotate(45)"><rect x="-6" y="-24" width="12" height="20" rx="5"/><path d="M 0,-4 V 22"/></g>`,
+  test: `<path d="M -19,9 A 19 19 0 1 1 19,9"/><path d="M 0,7 L 10,-9"/><circle cx="0" cy="7" r="3"/>`,
+  yours: `<path d="M -16,-9 h32 a 8 8 0 0 1 8,8 l 2,10 a 6 6 0 0 1 -10,4 l -6,-6 h-16 l -6,6 a 6 6 0 0 1 -10,-4 l 2,-10 a 8 8 0 0 1 8,-8 Z"/><path d="M -12,-2 v8 M -16,2 h8"/><circle cx="10" cy="0" r="1.6"/><circle cx="15" cy="4" r="1.6"/>`,
+  bolt: `<path d="M 4,-22 L -12,4 H 0 L -4,22 L 12,-4 H 0 Z" fill="currentColor"/>`,
+  shield: `<path d="M 0,-21 L 17,-14 V 0 C 17,11 9,18 0,22 C -9,18 -17,11 -17,0 V -14 Z"/><path d="M -7,0 l 5,5 l 9,-10"/>`,
+  dollar: `<path d="M 9,-12 C 6,-17 -10,-18 -10,-8 C -10,2 10,-2 10,9 C 10,19 -7,18 -10,12 M 0,-21 V 21"/>`,
+  monitor: `<rect x="-21" y="-16" width="42" height="27" rx="3"/><path d="M -9,19 h18 M 0,11 v8"/>`,
+  pad: `<path d="M -16,-9 h32 a 8 8 0 0 1 8,8 l 2,10 a 6 6 0 0 1 -10,4 l -6,-6 h-16 l -6,6 a 6 6 0 0 1 -10,-4 l 2,-10 a 8 8 0 0 1 8,-8 Z"/><path d="M -12,-2 v8 M -16,2 h8"/>`,
+  check: `<path d="M -11,0 l 7,7 l 14,-15"/>`,
+};
+const icon = (name, color, sw = 4, scale = 1) => `<g transform="scale(${scale})" fill="none" stroke="${color}" color="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</g>`;
+
+/* ------------------------------------------------------------ PC case (builds up from empty) */
+const CAB = {   // [messy, tidy] with identical command structure so they can be blended
+  A: ['M 104,312 C 176,300 26,226 120,140', 'M 104,312 C 100,262 100,180 120,140'],
+  B: ['M 300,312 C 368,334 232,296 300,270', 'M 300,312 C 300,300 300,290 300,270'],
+  C: ['M 150,16 C 214,-4 86,62 150,40', 'M 150,16 C 150,24 150,32 150,40'],
+};
+function pcCase2() {
+  const cable = id => `<path id="cab${id}" d="${CAB[id][0]}" stroke="#0e1117" stroke-width="15" fill="none" stroke-linecap="round"/>
+    <path id="cab${id}h" d="${CAB[id][0]}" stroke="#262d3b" stroke-width="15" fill="none" stroke-dasharray="3 5" stroke-linecap="round"/>`;
+  return `<g id="pc" transform="translate(60,1112)" opacity="0">
+    <rect x="0" y="0" width="360" height="420" rx="16" fill="#171b23" stroke="${C.out}" stroke-width="6"/>
+    <rect x="290" y="-9" width="44" height="10" rx="4" fill="#232836" stroke="${C.out}" stroke-width="3"/>
+    <circle id="pwrLed" cx="312" cy="-4" r="3" fill="#39424f"/>
+    <rect x="16" y="16" width="328" height="388" rx="8" fill="#0a0d13"/>
+    <rect id="caseGlow" x="16" y="16" width="328" height="388" rx="8" fill="url(#rgbV)" opacity="0"/>
+    <rect x="118" y="28" width="212" height="264" rx="6" fill="none" stroke="#1a2130" stroke-width="2" stroke-dasharray="7 6"/>
+    <g transform="translate(56,84)">${fan('ff1', 36)}</g>
+    <g transform="translate(56,176)">${fan('ff2', 36)}</g>
+    <g transform="translate(56,268)">${fan('ff3', 36)}</g>
+    <rect x="16" y="312" width="328" height="92" rx="4" fill="#131720" stroke="#0a0d12" stroke-width="3"/>
+    <rect x="40" y="334" width="160" height="50" fill="url(#vents)"/>
+    <rect x="232" y="340" width="90" height="36" rx="6" fill="#0d1017" stroke="#262c39" stroke-width="2"/>
+    <g id="pMB" opacity="0">
+      <rect x="118" y="28" width="212" height="264" rx="6" fill="#162030" stroke="#0a0d12" stroke-width="3"/>
+      <path d="M 132,150 L 170,150 L 182,162 L 250,162 M 132,198 L 160,198 L 172,204 L 300,204 M 250,40 L 250,60 L 238,72 M 140,264 L 300,264 M 140,280 L 220,280" stroke="#24344c" stroke-width="2.5" fill="none"/>
+      <rect x="312" y="40" width="14" height="88" rx="2" fill="#4b556a"/>
+      <rect x="178" y="68" width="64" height="64" rx="5" fill="#232b3b" stroke="#344058" stroke-width="2"/>
+      <rect x="262" y="46" width="11" height="146" rx="2" fill="#0f141d" stroke="#2a3448" stroke-width="2"/>
+      <rect x="280" y="46" width="11" height="146" rx="2" fill="#0f141d" stroke="#2a3448" stroke-width="2"/>
+      <rect x="146" y="175" width="104" height="15" rx="3" fill="#0f141d" stroke="#2a3448" stroke-width="2"/>
+      <rect x="140" y="212" width="176" height="12" rx="3" fill="#0f141d" stroke="#3a465e" stroke-width="2"/>
+      <rect x="140" y="246" width="176" height="10" rx="3" fill="#0f141d" stroke="#2a3448" stroke-width="2"/>
+    </g>
+    <g id="pSSD" opacity="0"><rect x="148" y="176" width="98" height="13" rx="2" fill="#1d2230" stroke="#0a0d12" stroke-width="1.5"/><rect x="168" y="178.5" width="48" height="8" rx="1.5" fill="#4b7bff"/></g>
+    <g id="pCPU" opacity="0"><rect x="186" y="76" width="48" height="48" rx="4" fill="#c3c9d4" stroke="#7d8594" stroke-width="2"/><rect x="194" y="84" width="32" height="32" rx="2" fill="#9aa2b0"/><path d="M 189,121 l 6,0 l -6,-6 Z" fill="#d6a63c"/></g>
+    <g id="pRAM1" opacity="0"><rect x="260" y="44" width="15" height="150" rx="3" fill="#20242d" stroke="#0a0d12" stroke-width="2"/><rect x="260" y="44" width="15" height="30" rx="3" fill="url(#rgbV)" class="rgbGlow"/></g>
+    <g id="pRAM2" opacity="0"><rect x="278" y="44" width="15" height="150" rx="3" fill="#20242d" stroke="#0a0d12" stroke-width="2"/><rect x="278" y="44" width="15" height="30" rx="3" fill="url(#rgbV)" class="rgbGlow"/></g>
+    <g id="pCool" opacity="0"><rect x="158" y="48" width="104" height="104" rx="12" fill="#1e2430" stroke="#0a0d12" stroke-width="3"/><g transform="translate(210,100)">${fan('cf', 44)}</g></g>
+    <g id="pGPU" opacity="0" transform="translate(36,206)">${gpuSide()}</g>
+    <g id="cables" opacity="0">${cable('A')}${cable('B')}${cable('C')}
+      <g id="zips"><rect class="zip" x="94" y="276" width="16" height="6" rx="2" fill="#e8eef5"/><rect class="zip" x="92" y="226" width="16" height="6" rx="2" fill="#e8eef5"/><rect class="zip" x="96" y="178" width="16" height="6" rx="2" fill="#e8eef5"/></g></g>
+    <g id="glass" opacity="0"><rect x="8" y="8" width="344" height="404" rx="12" fill="url(#glassRefl)" stroke="#d6ecff" stroke-opacity=".35" stroke-width="3"/>
+      <path d="M 40,20 L 120,20 L 20,180 L 20,120 Z" fill="#fff" opacity=".06"/><path d="M 300,400 L 340,330 L 340,400 Z" fill="#fff" opacity=".05"/></g>
+  </g>`;
+}
+
+/* ------------------------------------------------------------ boxes that arrive on the bench */
+// id, label, x, width, height, stack-on (bottom y), drop time
+const BOXES = [
+  ['bxCase', 'CASE', 70, 250, 330, 1532, 19.8],
+  ['bxPSU', 'PSU', 770, 150, 110, 1532, 20.3],
+  ['bxGPU', 'GPU', 330, 214, 92, 1532, 20.8],
+  ['bxMB', 'BOARD', 344, 186, 48, 1440, 21.3],
+  ['bxCPU', 'CPU', 790, 100, 82, 1422, 21.8],
+  ['bxRAM', 'RAM', 935, 76, 124, 1532, 22.3],
+  ['bxSSD', 'SSD', 1022, 66, 62, 1532, 22.8],
+];
+function boxes() {
+  return BOXES.map(([id, label, x, w, h, by]) => {
+    const lw = Math.max(54, label.length * 15 + 22);
+    return `<g id="${id}" opacity="0" transform="translate(${x},${by})">
+      <rect x="0" y="${-h}" width="${w}" height="${h}" rx="6" fill="url(#boxGrad)" stroke="${C.out}" stroke-width="4"/>
+      <rect x="${w / 2 - 11}" y="${-h + 2}" width="22" height="${h - 4}" fill="#a77a42" opacity=".55"/>
+      <rect x="${(w - lw) / 2}" y="${-h / 2 - 15}" width="${lw}" height="30" rx="5" fill="#f4efe6" stroke="#5b4a33" stroke-width="2"/>
+      <text x="${w / 2}" y="${-h / 2 + 8}" text-anchor="middle" font-size="22" class="hd" fill="#1d1a14">${label}</text></g>`;
+  }).join('');
+}
+
+/* ------------------------------------------------------------ props: clipboard + phone */
+function clipboard() {
+  let rows = '';
+  for (let i = 0; i < 4; i++) {
+    const y = -48 + i * 50;
+    rows += `<rect x="-90" y="${y - 14}" width="26" height="26" rx="5" fill="none" stroke="#2b3453" stroke-width="3"/>
+      <path d="M -48,${y} H ${i === 3 ? 40 : 86}" stroke="#a8b0c4" stroke-width="6" stroke-linecap="round"/>
+      <path class="clipChk" d="M -86,${y - 1} l 7,8 l 14,-17" stroke="${C.green}" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0"/>`;
+  }
+  return `<g id="clip" opacity="0">
+    <rect x="-125" y="-160" width="250" height="320" rx="16" fill="#8a5a36" stroke="${C.out}" stroke-width="5"/>
+    <rect x="-106" y="-132" width="212" height="274" rx="6" fill="#f3efe6"/>
+    <rect x="-48" y="-178" width="96" height="40" rx="10" fill="#b9c0cc" stroke="${C.out}" stroke-width="4"/>
+    <text x="0" y="-92" text-anchor="middle" font-size="25" class="hd" fill="#1a2140">BUILD PLAN</text>${rows}
+  </g>`;
+}
+function phone() {
+  return `<g id="phone" opacity="0">
+    <rect x="-40" y="-74" width="80" height="148" rx="15" fill="#11141c" stroke="${C.out}" stroke-width="4"/>
+    <rect x="-32" y="-62" width="64" height="120" rx="8" fill="#16234a"/>
+    <g transform="translate(-2,-6) scale(.9)">${icon('buy', '#ffffff', 4.5)}</g>
+    <g id="phBadge"><circle cx="18" cy="-30" r="13" fill="${C.red}"/><text id="phCount" x="18" y="-24" text-anchor="middle" font-size="17" class="hd" fill="#fff">0</text></g>
+    <g id="phDone" opacity="0"><rect x="-32" y="-62" width="64" height="120" rx="8" fill="#0f3a26"/><g transform="translate(0,-4)">${icon('check', C.green, 6, 1.2)}</g></g>
+  </g>`;
+}
+
+/* ------------------------------------------------------------ the customer (front view, own simple rig) */
+function customerBody() {
+  const out = C.out, sk = C.cuSkin, r = rng(77);
+  let curls = '';
+  for (let i = 0; i < 15; i++) {
+    const a = Math.PI * (1.04 + .92 * i / 14);
+    curls += `<circle cx="${(Math.cos(a) * 100).toFixed(1)}" cy="${(-196 + Math.sin(a) * 104).toFixed(1)}" r="${(26 + r() * 9).toFixed(1)}" fill="${C.cuHair}" stroke="${out}" stroke-width="4"/>`;
+  }
+  return `<g id="cuBody">
+    <path d="M -126,46 C -136,-6 -72,-28 0,-28 C 72,-28 136,-6 126,46 Z" fill="${C.hoodD}" stroke="${out}" stroke-width="5"/>
+    <path d="M -90,18 C -140,24 -188,44 -210,82 C -230,118 -238,176 -238,262 L -238,760 L 238,760 L 238,262 C 238,176 230,118 210,82 C 188,44 140,24 90,18 C 60,48 -60,48 -90,18 Z" fill="url(#hoodGrad)" stroke="${out}" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M -90,18 C -60,48 60,48 90,18" fill="none" stroke="${C.hoodD}" stroke-width="10"/>
+    <path d="M -30,42 L -36,150 M 30,42 L 36,150" stroke="#e8eef5" stroke-width="6" stroke-linecap="round"/>
+    <rect x="-41" y="146" width="10" height="18" rx="3" fill="#c9d2de"/><rect x="31" y="146" width="10" height="18" rx="3" fill="#c9d2de"/>
+    <rect x="-34" y="-40" width="68" height="74" fill="${sk}"/>
+    <path d="M -120,40 C -112,82 112,82 120,40" stroke="#15171c" stroke-width="14" fill="none"/>
+    <ellipse cx="-120" cy="52" rx="30" ry="38" fill="#15171c" stroke="${out}" stroke-width="4"/><ellipse cx="-120" cy="52" rx="17" ry="23" fill="none" stroke="${C.green}" stroke-width="3"/>
+    <ellipse cx="120" cy="52" rx="30" ry="38" fill="#15171c" stroke="${out}" stroke-width="4"/><ellipse cx="120" cy="52" rx="17" ry="23" fill="none" stroke="${C.green}" stroke-width="3"/>
+    <g id="cuHead">
+      <ellipse cx="-108" cy="-148" rx="16" ry="25" fill="${sk}" stroke="${out}" stroke-width="4"/>
+      <ellipse cx="108" cy="-148" rx="16" ry="25" fill="${sk}" stroke="${out}" stroke-width="4"/>
+      <path d="M -102,-226 C -114,-170 -108,-104 -86,-66 C -66,-32 -36,-18 0,-18 C 36,-18 66,-32 86,-66 C 108,-104 114,-170 102,-226 C 80,-290 -80,-290 -102,-226 Z" fill="${sk}" stroke="${out}" stroke-width="6"/>
+      ${curls}
+      <path d="M -108,-176 C -112,-262 -58,-300 0,-302 C 58,-300 112,-262 108,-176 C 84,-214 -84,-214 -108,-176 Z" fill="${C.cuHair}"/>
+      <ellipse cx="-62" cy="-104" rx="17" ry="9" fill="#c4664f" opacity=".3"/><ellipse cx="62" cy="-104" rx="17" ry="9" fill="#c4664f" opacity=".3"/>
+      <path d="M -62,-184 Q -40,-200 -18,-186 M 18,-186 Q 40,-200 62,-184" stroke="${C.cuHair}" stroke-width="9" fill="none" stroke-linecap="round"/>
+      <g id="cuEyeL" transform="translate(-40,-150)"><ellipse rx="16" ry="18" fill="#fbf6ef" stroke="${out}" stroke-width="3"/><g class="cuIris"><circle r="9" fill="#2b1a10"/><circle cx="3" cy="-3" r="2.6" fill="#fff"/></g></g>
+      <g id="cuEyeR" transform="translate(40,-150)"><ellipse rx="16" ry="18" fill="#fbf6ef" stroke="${out}" stroke-width="3"/><g class="cuIris"><circle r="9" fill="#2b1a10"/><circle cx="3" cy="-3" r="2.6" fill="#fff"/></g></g>
+      <path d="M -4,-134 Q -16,-110 -2,-104 Q 6,-101 13,-108" stroke="${C.cuSkinD}" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+      <path d="M -46,-84 Q 0,-80 46,-84 Q 42,-38 0,-34 Q -42,-38 -46,-84 Z" fill="#3a1414" stroke="${out}" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M -40,-82 Q 0,-79 40,-82 L 36,-70 Q 0,-66 -36,-70 Z" fill="#fbf6ef"/>
+      <ellipse cx="0" cy="-47" rx="17" ry="7" fill="#d77a7a"/>
+    </g>
+  </g>`;
+}
+function limbMarkup(id, sleeve) {
+  return `<g id="${id}"><path id="${id}o" stroke="${C.out}" stroke-width="96" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path id="${id}f" stroke="${sleeve}" stroke-width="84" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path id="${id}c" stroke="${C.hoodD}" stroke-width="12" fill="none" stroke-linecap="round"/></g>`;
+}
+function limbUpdate(id, A) {
+  const { S, E, W: Wr } = A, d = `M${P(S[0], S[1])} L${P(E[0], E[1])} L${P(Wr[0], Wr[1])}`;
+  $(id + 'o').setAttribute('d', d); $(id + 'f').setAttribute('d', d);
+  const vx = Wr[0] - E[0], vy = Wr[1] - E[1], L = Math.hypot(vx, vy) || 1, ux = vx / L, uy = vy / L, px = -uy, py = ux;
+  const c0 = [Wr[0] - ux * 10, Wr[1] - uy * 10];
+  $(id + 'c').setAttribute('d', `M${P(c0[0] + px * 38, c0[1] + py * 38)} L${P(c0[0] - px * 38, c0[1] - py * 38)}`);
+}
+function ikSolve(S, T, L1, L2, pref) {
+  let dx = T[0] - S[0], dy = T[1] - S[1]; let d = Math.hypot(dx, dy) || 1e-3;
+  const maxD = L1 + L2 - 1, minD = Math.abs(L1 - L2) + 30;
+  if (d > maxD) { const k = maxD / d; dx *= k; dy *= k; d = maxD; } else if (d < minD) { const k = minD / d; dx *= k; dy *= k; d = minD; }
+  const ux = dx / d, uy = dy / d, a = (L1 * L1 - L2 * L2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+  const nx = -uy, ny = ux, sg = (nx * pref[0] + ny * pref[1]) >= 0 ? 1 : -1;
+  return { S, E: [S[0] + ux * a + nx * h * sg, S[1] + uy * a + ny * h * sg], W: [S[0] + dx, S[1] + dy] };
+}
+const cuHands = s => handShapes(s).split(C.skin).join(C.cuSkin);
+
+/* ------------------------------------------------------------ world */
+function worldFront2() {
+  return `<g id="wf">
+    <g id="frankBodyG" transform="translate(650,1060)">${frankBody()}</g>
+    <g id="cuG" transform="translate(-900,1092) scale(.95)">${customerBody()}</g>
+    <g id="bench">
+      <rect x="-1400" y="1500" width="3400" height="700" fill="url(#benchGrad)"/>
+      <rect x="-1400" y="1500" width="3400" height="44" fill="#252c3e"/>
+      <rect x="-1400" y="1542" width="3400" height="5" fill="#39435c"/>
+      <path d="M -160,1506 L 520,1506 L 540,1538 L -180,1538 Z" fill="#134a52" stroke="#0b2c31" stroke-width="3"/>
+      <g transform="translate(560,1514)"><rect x="0" y="0" width="120" height="18" rx="9" fill="#e8b23a" stroke="${C.out}" stroke-width="3"/><rect x="118" y="5" width="90" height="8" rx="3" fill="#aeb6c4" stroke="${C.out}" stroke-width="2"/></g>
+    </g>
+    ${pcCase2()}
+    <g id="boxes">${boxes()}</g>
+    <g id="frankArmsG" transform="translate(650,1060)">${frankArms()}</g>
+    <g id="cuArmsG" transform="translate(-900,1092) scale(.95)">${limbMarkup('cuaL', C.hood)}${limbMarkup('cuaR', C.hood)}</g>
+    <g id="props">${clipboard()}${phone()}</g>
+    <g id="frankHandsG" transform="translate(650,1060)">${frankHands()}</g>
+    <g id="cuHandsG" transform="translate(-900,1092) scale(.95)"><g id="hcuL">${cuHands('cuL')}</g><g id="hcuR"><g transform="scale(-1,1)">${cuHands('cuR')}</g></g></g>
+    <g id="fxW"></g>
+  </g>`;
+}
+
+/* ------------------------------------------------------------ overlay */
+const TRK_X = [160, 350, 540, 730, 920], TRK_ICON = ['plan', 'buy', 'build', 'test', 'yours'], TRK_LAB = ['PLAN', 'BUY', 'BUILD', 'TEST', 'YOURS'];
+function tracker() {
+  let nodes = '';
+  TRK_X.forEach((x, i) => {
+    nodes += `<g transform="translate(${x},0)">
+      <circle r="40" fill="#0f1630" stroke="#2b3453" stroke-width="5"/>
+      <circle id="tnr${i}" r="47" fill="none" stroke="${C.green}" stroke-width="5" opacity="0" filter="url(#glowSm)"/>
+      <g id="tni${i}">${icon(TRK_ICON[i], '#ffffff', 4)}</g>
+      <g id="tnc${i}" opacity="0"><circle r="40" fill="${C.green}" stroke="#0b0d12" stroke-width="4"/>${icon('check', '#04130a', 6.5, 1.25)}</g>
+      <text id="tnl${i}" x="0" y="80" text-anchor="middle" font-size="26" class="bd" fill="${C.ink3}">${TRK_LAB[i]}</text></g>`;
+  });
+  return `<g id="trk" opacity="0" transform="translate(540,250) translate(-540,0)">
+    <path d="M 160,0 H 920" stroke="#2b3453" stroke-width="7" stroke-linecap="round"/>
+    <path id="trkFill" d="M 160,0 H 160" stroke="${C.green}" stroke-width="7" stroke-linecap="round"/>${nodes}</g>`;
+}
+function chip(id, x, y, ic, label, color, size = 56) {
+  return `<g id="${id}" opacity="0" transform="translate(${x},${y})">
+    <rect class="chipBg" x="-300" y="-50" width="600" height="100" rx="50" fill="${color}" fill-opacity=".12" stroke="${color}" stroke-width="4"/>
+    <g class="chipIc"><circle r="36" fill="${color}"/>${icon(ic, '#071018', 5)}</g>
+    <text class="chipTx hd" x="0" y="${size * .36}" text-anchor="start" font-size="${size}" fill="${C.ink}">${label}</text></g>`;
+}
+const SEGS = [['GPU', .36, C.green], ['CPU', .20, C.blue], ['BOARD/RAM/SSD', .24, C.orange], ['PSU/CASE', .16, C.purple]];
+const BUY_ROWS = ['Case + cooling', 'Power supply', 'Graphics card', 'Motherboard', 'CPU', 'RAM', 'SSD'];
+function overlay2() {
+  let segs = '', x0 = 110;
+  SEGS.forEach(([lab, f, col], i) => {
+    const w = 860 * f;
+    segs += `<rect id="seg${i}" x="${x0.toFixed(1)}" y="728" width="0" height="72" rx="6" fill="${col}"/>
+      <text id="segL${i}" x="${(x0 + w / 2).toFixed(1)}" y="772" text-anchor="middle" font-size="22" class="bd" fill="#071018" opacity="0">${lab}</text>`;
+    x0 += w;
+  });
+  let rows = '';
+  BUY_ROWS.forEach((lab, i) => {
+    const y = 618 + i * 54;
+    rows += `<g id="buyRow${i}" opacity=".35">
+      <rect x="150" y="${y - 22}" width="34" height="28" rx="4" fill="url(#boxGrad)" stroke="${C.out}" stroke-width="2.5"/>
+      <text x="204" y="${y}" font-size="34" class="bd" fill="${C.ink}">${lab}</text>
+      <circle cx="922" cy="${y - 10}" r="19" fill="none" stroke="#2b3453" stroke-width="3"/>
+      <g id="buyChk${i}" opacity="0" transform="translate(922,${y - 10})"><circle r="19" fill="${C.green}"/>${icon('check', '#04130a', 5, .85)}</g></g>`;
+  });
+  const testRow = (id, y, label, col) => `
+      <text x="100" y="${y + 44}" font-size="40" class="hd" fill="${C.ink}">${label}</text>
+      <rect x="100" y="${y + 68}" width="380" height="24" rx="12" fill="#121a38"/>
+      <rect id="${id}Load" x="100" y="${y + 68}" width="0" height="24" rx="12" fill="${col}"/>
+      <text id="${id}LoadT" x="100" y="${y + 126}" font-size="26" class="mono tn" fill="${C.ink3}">LOAD 0%</text>
+      <rect x="520" y="${y + 8}" width="460" height="128" rx="10" fill="#0a1022" stroke="#1d2647" stroke-width="2"/>
+      <rect x="522" y="${y + 40}" width="456" height="94" rx="8" fill="url(#safeZone)"/>
+      <text x="532" y="${y + 128}" font-size="18" class="bd" fill="${C.green}" opacity=".7">SAFE ZONE</text>
+      <path id="${id}Line" d="" stroke="${col}" stroke-width="4" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+      <text id="${id}Temp" x="970" y="${y + 34}" text-anchor="end" font-size="28" class="mono tn" fill="${C.ink}">-- °C</text>`;
+  return `<g id="ov">
+    <rect id="shade" x="0" y="0" width="1080" height="1180" fill="url(#topShade)" opacity="0"/>
+
+    <!-- HOOK -->
+    ${tx('hkQ', 540, 300, 52, 'hd', C.ink, 'YOU WANT A GAMING PC THAT’S', 'filter="url(#shadow)"')}
+    ${chip('chip0', 540, 432, 'bolt', 'POWERFUL', C.green)}
+    ${chip('chip1', 540, 558, 'shield', 'RELIABLE', C.blue)}
+    ${chip('chip2', 540, 684, 'dollar', 'IN YOUR BUDGET', C.yellow)}
+
+    <!-- ROADMAP -->
+    ${tx('rmA', 540, 330, 78, 'hd', C.ink, 'I HANDLE IT.', 'filter="url(#shadow)"')}
+    ${tx('rmB', 540, 414, 78, 'hd', C.yellow, 'START TO FINISH.', 'filter="url(#shadow)"')}
+    ${tracker()}
+
+    <!-- 1 PLAN -->
+    ${tx('st1', 540, 428, 64, 'hd', C.ink, 'PLAN IT AROUND YOU', 'filter="url(#shadow)"')}
+    ${chip('in0', 220, 548, 'dollar', 'Budget', C.yellow, 36)}
+    ${chip('in1', 540, 548, 'pad', 'Games', C.green, 36)}
+    ${chip('in2', 860, 548, 'monitor', 'Monitor', C.blue, 36)}
+    <g id="planCard" opacity="0" transform="translate(0,0)">
+      <rect x="70" y="628" width="940" height="290" rx="28" fill="url(#cardGrad)" stroke="#2b3453" stroke-width="3"/>
+      <text x="110" y="692" font-size="34" class="hd" fill="${C.ink2}">YOUR BUDGET</text>
+      <rect x="110" y="722" width="860" height="84" rx="16" fill="#0b1124" stroke="#3a4670" stroke-width="3" stroke-dasharray="12 9"/>
+      ${segs}
+      <text x="970" y="852" text-anchor="end" font-size="26" class="md" fill="${C.ink3}">your budget →|</text>
+      <g id="fitBadge" opacity="0" transform="translate(110,866)"><rect x="0" y="0" width="372" height="40" rx="20" fill="${C.green}" fill-opacity=".14" stroke="${C.green}" stroke-width="3"/>
+        <g transform="translate(26,20) scale(.7)">${icon('check', C.green, 6)}</g><text x="52" y="29" font-size="26" class="bd" fill="${C.ink}">fits, with room to spare</text></g>
+    </g>
+
+    <!-- 2 BUY -->
+    ${tx('st2', 540, 428, 64, 'hd', C.ink, 'BUY THE RIGHT PARTS', 'filter="url(#shadow)"')}
+    <g id="buyCard" opacity="0" transform="translate(0,0)">
+      <rect x="110" y="490" width="860" height="520" rx="28" fill="url(#cardGrad)" stroke="#2b3453" stroke-width="3"/>
+      <text x="150" y="552" font-size="30" class="hd" fill="${C.ink3}">PARTS LIST</text>
+      ${rows}
+    </g>
+    <g id="stampBuy" opacity="0" transform="translate(540,800) rotate(-7)">
+      <rect x="-300" y="-62" width="600" height="124" rx="24" fill="#05140c" fill-opacity=".9" stroke="${C.green}" stroke-width="7"/>
+      <g transform="translate(-246,0)">${icon('check', C.green, 7, 1.5)}</g>
+      <text x="36" y="18" text-anchor="middle" font-size="50" class="hd" fill="${C.green}">WORKS TOGETHER</text></g>
+
+    <!-- 3 BUILD -->
+    ${tx('st3', 540, 428, 64, 'hd', C.ink, 'BUILD IT CLEAN', 'filter="url(#shadow)"')}
+    ${tx('bs0', 540, 494, 40, 'bd', C.ink2, 'every part seated right', 'filter="url(#shadow)"')}
+    ${tx('bs1', 540, 494, 40, 'bd', C.ink2, 'cables cleaned up', 'filter="url(#shadow)"')}
+    ${tx('bs2', 540, 494, 40, 'bd', C.yellow, 'lights on', 'filter="url(#shadow)"')}
+
+    <!-- 4 TEST -->
+    ${tx('st4', 540, 428, 64, 'hd', C.ink, 'STRESS TEST IT', 'filter="url(#shadow)"')}
+    ${tx('ss4', 540, 486, 36, 'bd', C.ink2, 'full load, watching the temps', 'filter="url(#shadow)"')}
+    ${tx('ss4b', 540, 486, 36, 'bd', C.yellow, 'If it’s going to fail, it fails on my bench.', 'filter="url(#shadow)"')}
+    <g id="testWin" opacity="0" transform="translate(0,0)">
+      <rect x="70" y="516" width="940" height="500" rx="24" fill="#070b18" stroke="#2b3453" stroke-width="4"/>
+      <path d="M 70,566 V 540 Q 70,516 94,516 H 986 Q 1010,516 1010,540 V 566 Z" fill="#0f1630"/>
+      <circle cx="104" cy="541" r="8" fill="#ff5f57"/><circle cx="130" cy="541" r="8" fill="#febc2e"/><circle cx="156" cy="541" r="8" fill="#28c840"/>
+      <text x="186" y="551" font-size="26" class="mono" fill="${C.ink2}">STRESS TEST</text>
+      <rect id="tsChip" x="832" y="526" width="160" height="30" rx="15" fill="${C.yellow}" fill-opacity=".16" stroke="${C.yellow}" stroke-width="2"/>
+      <text id="tsChipT" x="912" y="548" text-anchor="middle" font-size="20" class="bd" fill="${C.yellow}">RUNNING</text>
+      ${testRow('cpu', 576, 'CPU', C.blue)}
+      ${testRow('gpu', 724, 'GPU', C.green)}
+      <text x="100" y="924" font-size="40" class="hd" fill="${C.ink}">MEMORY</text>
+      <rect x="300" y="896" width="680" height="28" rx="14" fill="#121a38"/>
+      <rect id="memBar" x="300" y="896" width="0" height="28" rx="14" fill="${C.purple}"/>
+      <text id="memT" x="300" y="966" font-size="26" class="mono tn" fill="${C.ink3}">TESTING 0%</text>
+      <text id="memE" x="980" y="966" text-anchor="end" font-size="26" class="mono" fill="${C.green}" opacity="0">0 ERRORS</text>
+    </g>
+    <g id="passStamp" opacity="0" transform="translate(540,760) rotate(-6)">
+      <rect x="-330" y="-72" width="660" height="144" rx="28" fill="#05140c" fill-opacity=".92" stroke="${C.green}" stroke-width="8"/>
+      <g transform="translate(-272,0)">${icon('check', C.green, 8, 1.6)}</g>
+      <text x="40" y="19" text-anchor="middle" font-size="52" class="hd" fill="${C.green}">ALL TESTS PASSED</text></g>
+
+    <!-- 5 YOURS -->
+    ${tx('st5', 540, 428, 72, 'hd', C.ink, 'IT’S YOURS.', 'filter="url(#shadow)"')}
+    ${tx('ss5', 540, 494, 42, 'bd', C.yellow, 'Plug it in and play.', 'filter="url(#shadow)"')}
+
+    <!-- CTA -->
+    ${tx('ctA', 540, 420, 60, 'hd', C.ink, 'WANT ONE BUILT', 'filter="url(#shadow)"')}
+    ${tx('ctB', 540, 488, 60, 'hd', C.ink, 'FOR YOUR BUDGET?', 'filter="url(#shadow)"')}
+    <g id="ctSD" opacity="0" transform="translate(540,598)" filter="url(#shadow)">
+      <g id="ctPin" transform="translate(-260,-26)"><path d="M 0,40 C -6,30 -32,6 -32,-12 C -32,-30 -18,-44 0,-44 C 18,-44 32,-30 32,-12 C 32,6 6,30 0,40 Z" fill="${C.yellow}" stroke="#0b0d12" stroke-width="5"/><circle cx="0" cy="-13" r="11" fill="#0b0d12"/></g>
+      <text id="ctSDt" x="40" y="0" text-anchor="middle" font-size="66" class="hd" fill="${C.yellow}">IN SAN DIEGO?</text>
+    </g>
+    <g id="ctBox" opacity="0" transform="translate(540,736)">
+      <rect id="ctGlow" x="-250" y="-90" width="500" height="180" rx="40" fill="${C.green}" opacity=".5" filter="url(#blur24)"/>
+      <rect x="-236" y="-82" width="472" height="164" rx="34" fill="${C.green}" stroke="#0b0d12" stroke-width="5"/>
+      <text x="0" y="42" text-anchor="middle" font-size="120" class="hd" fill="#04130a">DM ME</text>
+    </g>
+    ${tx('ctC', 540, 880, 40, 'bd', C.ink, 'Send me your budget + what you play.', 'filter="url(#shadow)"')}
+    <g id="ctD" opacity="0" transform="translate(540,952)"><rect x="-340" y="-34" width="680" height="56" rx="28" fill="#080c18" fill-opacity=".85" stroke="#2b3453" stroke-width="2"/>
+      <text x="0" y="5" text-anchor="middle" font-size="28" class="bd" fill="${C.ink2}">Frank DeAmicis · gaming PCs · San Diego</text></g>
+
+    <g id="confetti"></g>
+    <g id="streakG" opacity="0"><rect id="streak" x="-300" y="-2000" width="260" height="4000" fill="url(#streak)" transform="rotate(18)"/></g>
+    <rect id="flash" x="0" y="0" width="1080" height="1920" fill="#fff" opacity="0"/>
+  </g>`;
+}
+
+/* ------------------------------------------------------------ build DOM */
+svg.innerHTML = defs() + defs2() +
+  `<rect width="1080" height="1920" fill="url(#bgGrad)"/>` +
+  `<g id="camB">${worldBack()}</g>` + particles() +
+  `<g id="cam"><g id="shake">${worldFront2()}</g></g>` +
+  `<rect width="1080" height="1920" fill="url(#vignette)" pointer-events="none"/>` +
+  overlay2();
+
+// size chips to their text, centre pin + "IN SAN DIEGO?"
+document.querySelectorAll('.chipTx').forEach(t => {
+  const g = t.parentNode, L = t.getComputedTextLength(), small = +t.getAttribute('font-size') < 50;
+  const pad = small ? 18 : 26, icR = small ? 26 : 36, w = icR * 2 + pad * 3 + L, left = -w / 2;
+  const bg = g.querySelector('.chipBg'), ic = g.querySelector('.chipIc');
+  const h = small ? 72 : 100;
+  bg.setAttribute('x', left.toFixed(1)); bg.setAttribute('width', w.toFixed(1)); bg.setAttribute('y', -h / 2); bg.setAttribute('height', h); bg.setAttribute('rx', h / 2);
+  ic.setAttribute('transform', `translate(${(left + pad + icR).toFixed(1)},0) scale(${small ? .72 : 1})`);
+  t.setAttribute('x', (left + pad * 2 + icR * 2).toFixed(1));
+});
+(function centreSD() {
+  const t = $('ctSDt'), L = t.getComputedTextLength(), pinW = 64, gap = 18, left = -(pinW + gap + L) / 2;
+  $('ctPin').setAttribute('transform', `translate(${(left + pinW / 2).toFixed(1)},-24)`);
+  t.setAttribute('x', (left + pinW + gap + L / 2).toFixed(1));
+})();
+
+/* ------------------------------------------------------------ Frank poses (Frank-local hand targets) */
+const DOWN = [-0.3, 0.95], DOWNR = [0.3, 0.95];
+const POSES = {
+  idle:     { L: [-150, 418], R: [150, 418], hL: 'relax', hR: 'relax', rL: -28, rR: 28, k: .8 },
+  pointUp:  { L: [-150, 418], R: [262, -118], hL: 'relax', hR: 'point', rL: -28, rR: 180, k: 1 },
+  thumbMe:  { L: [-150, 418], R: [112, 236], hL: 'relax', hR: 'thumb', rL: -28, rR: 92, k: .76 },
+  holdClip: { L: [-146, 262], R: [146, 262], hL: 'fist', hR: 'fist', rL: -96, rR: 96, k: .74 },
+  phone:    { L: [-150, 418], R: [118, 240], hL: 'relax', hR: 'fist', rL: -28, rR: 160, k: .76 },
+  reachMB:  { L: [-424, 236], R: [150, 418], hL: 'flat', hR: 'relax', rL: -112, rR: 28, k: .98 },
+  reachCPU: { L: [-372, 168], R: [150, 418], hL: 'relax', hR: 'relax', rL: -120, rR: 28, k: .95 },
+  reachRAM: { L: [-322, 176], R: [150, 418], hL: 'point', hR: 'relax', rL: -150, rR: 28, k: .95 },
+  reachSSD: { L: [-404, 246], R: [150, 418], hL: 'point', hR: 'relax', rL: -120, rR: 28, k: .97 },
+  reachGPU: { L: [-410, 300], R: [150, 418], hL: 'relax', hR: 'relax', rL: -100, rR: 28, k: 1 },
+  cable1:   { L: [-468, 384], R: [150, 418], hL: 'fist', hR: 'relax', rL: -150, rR: 28, k: 1 },
+  cable2:   { L: [-478, 214], R: [150, 418], hL: 'fist', hR: 'relax', rL: -170, rR: 28, k: 1 },
+  power:    { L: [-300, 60], R: [150, 418], hL: 'point', hR: 'relax', rL: 170, rR: 28, k: .95 },
+  thumbsUp: { L: [-150, 418], R: [236, 64], hL: 'relax', hR: 'thumb', rL: -28, rR: 180, k: .86 },
+  present:  { L: [-262, 262], R: [262, 262], hL: 'relax', hR: 'relax', rL: -58, rR: 58, k: .8 },
+  push:     { L: [-250, 330], R: [150, 418], hL: 'flat', hR: 'relax', rL: -90, rR: 28, k: .95 },
+  ctaPoint: { L: [-150, 418], R: [258, -128], hL: 'relax', hR: 'point', rL: -28, rR: 186, k: 1 },
+};
+const POSE_TL = [
+  [0, 0, 'idle'], [1.0, 1.4, 'pointUp'], [4.9, 5.4, 'idle'],
+  [6.05, 6.45, 'thumbMe'], [8.0, 8.4, 'idle'],
+  [9.6, 10.05, 'holdClip'], [17.4, 17.85, 'idle'],
+  [18.0, 18.3, 'phone'], [19.55, 19.95, 'present'], [25.6, 25.95, 'idle'],
+  [26.3, 26.55, 'reachMB'], [26.75, 26.95, 'idle'],
+  [27.05, 27.25, 'reachCPU'], [27.4, 27.55, 'idle'],
+  [27.65, 27.85, 'reachRAM'], [28.45, 28.6, 'idle'],
+  [28.65, 28.85, 'reachSSD'], [29.0, 29.15, 'idle'],
+  [29.35, 29.55, 'reachCPU'], [29.7, 29.85, 'idle'],
+  [30.3, 30.55, 'reachGPU'], [30.75, 30.95, 'idle'],
+  [31.15, 31.4, 'cable1'], [31.6, 31.95, 'cable2'], [32.2, 32.45, 'idle'],
+  [32.95, 33.2, 'power'], [33.5, 33.75, 'idle'],
+  [41.55, 41.9, 'thumbsUp'], [43.3, 43.6, 'idle'],
+  [45.25, 45.5, 'push'], [46.55, 46.85, 'idle'], [46.95, 47.3, 'thumbsUp'], [50.1, 50.45, 'idle'],
+  [51.4, 51.85, 'ctaPoint'], [55.6, 56.0, 'thumbsUp'],
+];
+function poseAt(t) {
+  let cur = POSES[POSE_TL[0][2]], prev = cur, p = 1;
+  for (const [a, b, name] of POSE_TL) if (t >= a) { prev = cur; cur = POSES[name]; p = b > a ? EASE.inOut(seg(t, a, b)) : 1; }
+  const m = k => mix(prev[k], cur[k], p);
+  const rotMix = (a, b) => a == null || b == null ? (p < .5 ? a : b) : lerp(a, b, p);
+  return { L: m('L'), R: m('R'), hL: p < .5 ? prev.hL : cur.hL, hR: p < .5 ? prev.hR : cur.hR, rL: rotMix(prev.rL, cur.rL), rR: rotMix(prev.rR, cur.rR), k: lerp(prev.k || 1, cur.k || 1, p) };
+}
+
+/* ------------------------------------------------------------ expressions */
+const EXPR = {
+  friendly: { brow: .3, smile: .55, open: 0, look: [0, 0], tilt: -2 },
+  talk:     { brow: .45, smile: .35, open: 0, look: [0, 0], tilt: 2 },
+  read:     { brow: .2, smile: .25, open: 0, look: [0, 6], tilt: -3 },
+  phone:    { brow: .2, smile: .3, open: 0, look: [5, 6], tilt: 3 },
+  boxes:    { brow: .55, smile: .6, open: 0, look: [-4, 3], tilt: -3 },
+  work:     { brow: .1, smile: .15, open: 0, look: [-5, 4], tilt: -3 },
+  watch:    { brow: .35, smile: .1, open: 0, look: [2, -5], tilt: 0 },
+  happy:    { brow: .45, smile: 1, open: 0, look: [0, 0], tilt: -3 },
+  toCust:   { brow: .45, smile: 1, open: 0, look: [-6, 0], tilt: -4 },
+};
+const EXPR_TL = [[0, 'friendly'], [6, 'talk'], [10, 'read'], [12.2, 'friendly'], [14.6, 'read'], [15.4, 'happy'], [18, 'phone'],
+  [19.8, 'boxes'], [23.6, 'happy'], [26, 'work'], [33.4, 'happy'], [35, 'watch'], [41.5, 'happy'], [44.2, 'toCust'], [50.6, 'happy']];
+function exprAt(t) {
+  let i = 0; for (let k = 0; k < EXPR_TL.length; k++) if (t >= EXPR_TL[k][0]) i = k;
+  const cur = EXPR[EXPR_TL[i][1]], prev = i > 0 ? EXPR[EXPR_TL[i - 1][1]] : cur;
+  const p = EASE.inOut(seg(t, EXPR_TL[i][0], EXPR_TL[i][0] + .25));
+  const o = {}; for (const k in cur) o[k] = mix(prev[k], cur[k], p); return o;
+}
+const BLINKS = [2.6, 5.6, 8.9, 12.9, 16.3, 21.4, 24.9, 34.2, 37.6, 40.3, 45.9, 49.2, 53.6, 57.2];
+const blinkAt = t => BLINKS.reduce((b, t0) => Math.max(b, pulse(t, t0, .06, .05, .08)), 0);
+
+/* ------------------------------------------------------------ camera */
+const CAMS = {
+  hero: [1.08, 640, 1180, 540, 1340], hero2: [1.13, 640, 1180, 540, 1340],
+  split: [0.8, 520, 1300, 540, 1620],
+  build: [1.0, 400, 1300, 540, 1420],
+  handoff: [0.76, 230, 1250, 540, 1590],
+  cta: [1.0, 640, 1200, 540, 1540], cta2: [1.04, 640, 1200, 540, 1540],
+};
+const CAM_TL = [[0, 'hero'], [5.8, 'hero2', 'lin'], [6.3, 'hero'], [9.45, 'hero'], [10.05, 'split'], [25.8, 'split'], [26.35, 'build'],
+  [34.65, 'build'], [35.2, 'split'], [43.8, 'split'], [44.55, 'handoff'], [50.75, 'handoff'], [51.5, 'cta'], [59, 'cta2', 'lin']].map(([t, n, e]) => [t, CAMS[n], e]);
+
+/* ------------------------------------------------------------ text timing [id, in, out, type] */
+const TXT = [
+  ['hkQ', -0.3, 5.75, 'pop'], ['chip0', 1.2, 5.75, 'slam'], ['chip1', 2.2, 5.75, 'slam'], ['chip2', 3.2, 5.75, 'slam'],
+  ['rmA', 6.0, 9.35, 'pop'], ['rmB', 6.25, 9.35, 'slam'],
+  ['st1', 10.05, 17.75, 'up'], ['in0', 10.7, 17.75, 'pop'], ['in1', 11.1, 17.75, 'pop'], ['in2', 11.5, 17.75, 'pop'], ['planCard', 11.9, 17.75, 'up'],
+  ['st2', 18.05, 25.75, 'up'], ['buyCard', 18.3, 25.75, 'up'], ['stampBuy', 23.4, 25.75, 'slam'],
+  ['st3', 26.05, 34.75, 'up'], ['bs0', 26.4, 31.0, 'up'], ['bs1', 31.15, 33.15, 'up'], ['bs2', 33.4, 34.75, 'up'],
+  ['st4', 35.05, 43.75, 'up'], ['ss4', 35.3, 41.85, 'up'], ['ss4b', 42.0, 43.75, 'up'], ['testWin', 35.4, 43.75, 'up'], ['passStamp', 41.4, 43.75, 'slam'],
+  ['st5', 44.6, 50.75, 'slam'], ['ss5', 44.95, 50.75, 'up'],
+  ['ctA', 51.2, 59.6, 'up'], ['ctB', 51.35, 59.6, 'up'], ['ctSD', 52.4, 59.6, 'slam'], ['ctBox', 53.0, 59.6, 'slam'], ['ctC', 54.0, 59.6, 'up'], ['ctD', 54.8, 59.6, 'up'],
+];
+const BASE = {};
+for (const [id] of TXT) { const m = /translate\(([-\d.]+),([-\d.]+)\)(.*)/.exec($(id).getAttribute('transform')); BASE[id] = [parseFloat(m[1]), parseFloat(m[2]), m[3] || '']; }
+function textAnim(t) {
+  for (const [id, a, b, type] of TXT) {
+    const el = $(id), [x, y, rest] = BASE[id];
+    if (t < a || t > b) { el.setAttribute('opacity', 0); continue; }
+    const pi = seg(t, a, a + (type === 'slam' ? .28 : .38)), po = seg(t, b - .22, b);
+    let s = 1, dx = 0, dy = 0, op = clamp(pi * 3);
+    if (type === 'pop') { s = lerp(.55, 1, EASE.outBack(pi)); op = clamp(pi * 4); }
+    else if (type === 'slam') { s = lerp(1.9, 1, EASE.out(pi)); op = clamp(pi * 5); }
+    else if (type === 'up') { dy = lerp(46, 0, EASE.out(pi)); }
+    op *= 1 - po; dy -= EASE.in(po) * 30; s *= 1 - .05 * po;
+    el.setAttribute('opacity', op.toFixed(3));
+    const ox = id === 'planCard' || id === 'buyCard' || id === 'testWin' ? 0 : x;   // full-width cards sit at 0,0
+    el.setAttribute('transform', `translate(${(ox + dx).toFixed(1)},${(y + dy).toFixed(1)})${rest} scale(${s.toFixed(4)})`);
+  }
+}
+
+/* ------------------------------------------------------------ build timing */
+const CASE_IN = 26.0, CABLES = [31.3, 32.3], ZIPS = [31.45, 31.8, 32.15], GLASS_ON = 32.8, POWER_ON = 33.4;
+const PARTS = [['pMB', 26.6, [284, 1272]], ['pCPU', 27.3, [270, 1212]], ['pRAM1', 27.9, [327, 1200]], ['pRAM2', 28.3, [345, 1200]],
+  ['pSSD', 28.9, [257, 1295]], ['pCool', 29.6, [270, 1212]], ['pGPU', 30.6, [242, 1350]]];
+const SLIDE = [45.5, 46.5], EXIT = [50.0, 51.0], CU_IN = [44.3, 45.3];
+function caseX(t) {
+  let x = 60;
+  x = lerp(x, -40, EASE.inOut(seg(t, SLIDE[0], SLIDE[1])));
+  x = lerp(x, -1050, EASE.in(seg(t, EXIT[0], EXIT[1])));
+  return x;
+}
+function cuX(t) { return lerp(lerp(-900, -170, EASE.out(seg(t, CU_IN[0], CU_IN[1]))), -1180, EASE.in(seg(t, EXIT[0], EXIT[1]))); }
+
+/* ------------------------------------------------------------ world FX */
+const FX = [];
+for (const [, t0, pt] of PARTS) FX.push([t0, pt[0], pt[1], t0 === 30.6 ? 'clickBig' : 'click']);
+FX.push([POWER_ON, 240, 1320, 'power']);
+for (const b of BOXES) FX.push([b[6], b[2] + b[3] / 2, b[5], 'thump']);
+(function buildFx() {
+  let s = '';
+  FX.forEach((f, i) => {
+    const txt = f[3] === 'power' ? 'POWER ON' : f[3] === 'thump' ? '' : 'click!';
+    s += `<g id="fx${i}" opacity="0" transform="translate(${f[1]},${f[2]})">
+      <circle r="60" fill="none" stroke="#fff" stroke-width="${f[3] === 'thump' ? 4 : 6}"/>
+      <circle r="34" fill="url(#gWhite)"/>
+      <text x="58" y="-58" font-size="${f[3] === 'clickBig' ? 56 : 40}" class="hd" fill="${f[3] === 'power' ? C.green : C.yellow}" transform="rotate(-10)" stroke="#0b0d12" stroke-width="7" paint-order="stroke">${txt}</text></g>`;
+  });
+  $('fxW').innerHTML = s;
+})();
+function fxAnim(t) {
+  FX.forEach((f, i) => {
+    const el = $(`fx${i}`), p = seg(t, f[0], f[0] + .55);
+    if (t < f[0] || p >= 1) { el.setAttribute('opacity', 0); return; }
+    const ring = el.children[0], core = el.children[1], txt = el.children[2];
+    const big = f[3] === 'clickBig' || f[3] === 'power' ? 1.6 : f[3] === 'thump' ? .8 : 1;
+    ring.setAttribute('r', (20 + 90 * big * EASE.out(p)).toFixed(1)); ring.setAttribute('opacity', ((1 - p) * (f[3] === 'thump' ? .5 : 1)).toFixed(2));
+    core.setAttribute('r', (40 * big * (1 - p * .6)).toFixed(1)); core.setAttribute('opacity', ((1 - p) * (f[3] === 'thump' ? .25 : 1)).toFixed(2));
+    txt.setAttribute('opacity', clamp((1 - p) * 2.2).toFixed(2));
+    txt.setAttribute('transform', `rotate(-10) translate(0,${(-20 * EASE.out(p)).toFixed(1)}) scale(${lerp(.6, 1, EASE.outBack(clamp(p * 3))).toFixed(3)})`);
+    el.setAttribute('opacity', 1);
+  });
+}
+
+/* ------------------------------------------------------------ confetti (screen space) */
+const CONF_T = 46.8, CONF = [];
+(function buildConfetti() {
+  const r = rng(9), cols = [C.green, C.blue, C.yellow, C.mag, C.cyan, C.orange, '#ffffff'];
+  let s = '';
+  for (let i = 0; i < 90; i++) {
+    const a = -Math.PI / 2 + (r() - .5) * 2.1, sp = 900 + r() * 1100;
+    CONF.push({ vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, spin: (r() - .5) * 1400, ph: r() * 6.28, sway: 30 + r() * 50, delay: r() * .12 });
+    s += `<rect class="cfx" x="-7" y="-4" width="${(10 + r() * 8).toFixed(1)}" height="${(6 + r() * 6).toFixed(1)}" rx="1.5" fill="${cols[i % cols.length]}" opacity="0"/>`;
+  }
+  $('confetti').innerHTML = s;
+})();
+const CFX = Array.from(document.querySelectorAll('.cfx'));
+function confettiAnim(t, origin) {
+  CFX.forEach((e, i) => {
+    const c = CONF[i], tt = t - CONF_T - c.delay;
+    if (tt < 0 || tt > 3.2) { e.setAttribute('opacity', 0); return; }
+    const drag = Math.exp(-1.6 * tt), vx = c.vx * drag, x = origin[0] + c.vx * (1 - drag) / 1.6 + Math.sin(tt * 5 + c.ph) * c.sway * Math.min(1, tt);
+    const y = origin[1] + c.vy * (1 - drag) / 1.6 + 900 * tt * tt * .55;
+    e.setAttribute('transform', `translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${(c.spin * tt).toFixed(0)}) scale(${(1 + .4 * Math.sin(tt * 9 + c.ph)).toFixed(2)},1)`);
+    e.setAttribute('opacity', (clamp((3.2 - tt) * 1.5) * (vx === vx ? 1 : 0)).toFixed(2));
+  });
+}
+
+/* ------------------------------------------------------------ main render */
+const PTS = Array.from(document.querySelectorAll('.pt')).map(e => ({ e, x: +e.dataset.x, y: +e.dataset.y, s: +e.dataset.s, p: +e.dataset.p }));
+const CLIPCHK = Array.from(document.querySelectorAll('.clipChk'));
+const ZIPEL = Array.from(document.querySelectorAll('.zip'));
+const CUIRIS = Array.from(document.querySelectorAll('.cuIris'));
+const BLEND = (a, b, k) => { const na = a.match(/-?[\d.]+/g).map(Number), nb = b.match(/-?[\d.]+/g).map(Number); let i = 0; return a.replace(/-?[\d.]+/g, () => (na[i] + (nb[i] - na[i++]) * k).toFixed(1)); };
+function camAt(t) {
+  const c = tk(CAM_TL, t);
+  let sx = 0, sy = 0;
+  for (const [t0, amp] of [[30.6, 10], [41.4, 10], [46.8, 8], [53.0, 10]]) {
+    const k = seg(t, t0, t0 + .3); if (t >= t0 && k < 1) { const d = (1 - k) * amp; sx += Math.sin(t * 93) * d; sy += Math.cos(t * 71) * d; }
+  }
+  return { c, sx, sy };
+}
+const tempCurve = (tt, idle, max, tau, seed) => idle + (max - idle) * (1 - Math.exp(-tt / tau)) + Math.sin(tt * 7.3 + seed) * .8 + Math.sin(tt * 13.1 + seed * 2) * .5;
+
+function renderFrame(T) {
+  const t = Math.max(0, Math.min(DUR, T));
+  const { c, sx, sy } = camAt(t);
+  const [s, fx, fy, ax, ay] = c;
+  $('cam').setAttribute('transform', `translate(${(ax + sx).toFixed(2)},${(ay + sy).toFixed(2)}) scale(${s.toFixed(4)}) translate(${-fx},${-fy})`);
+  const bs = 1 + (s - 1) * .6;
+  $('camB').setAttribute('transform', `translate(${(ax + sx * .5).toFixed(2)},${(ay + sy * .5).toFixed(2)}) scale(${bs.toFixed(4)}) translate(${-fx},${-fy})`);
+  for (const q of PTS) {
+    const y = ((q.y - t * q.s) % 1920 + 1920) % 1920, x = q.x + Math.sin(t * .6 + q.p) * 14;
+    q.e.setAttribute('cx', x.toFixed(1)); q.e.setAttribute('cy', y.toFixed(1));
+    q.e.setAttribute('opacity', (.18 + .22 * (1 + Math.sin(t * 1.3 + q.p)) / 2).toFixed(3));
+  }
+
+  /* ---- Frank */
+  const ex = exprAt(t), bl = blinkAt(t), breathe = Math.sin(t * Math.PI * .9), pose = poseAt(t);
+  $('fTorso').setAttribute('transform', `translate(0,${(breathe * 2).toFixed(2)})`);
+  const nod = [[15.2, .8], [41.5, .8], [53.0, .8]].reduce((a, [t0, d]) => a + (t > t0 && t < t0 + d ? Math.sin(seg(t, t0, t0 + d) * Math.PI * 2) * 3 : 0), 0);
+  $('fHead').setAttribute('transform', `translate(0,${(breathe * 3 + nod * 2).toFixed(2)}) rotate(${(ex.tilt + Math.sin(t * .8) * 1.2).toFixed(2)},0,0)`);
+  for (const sd of ['L', 'R']) {
+    $(`iris${sd}`).setAttribute('transform', `translate(${ex.look[0].toFixed(2)},${ex.look[1].toFixed(2)})`);
+    const cy = lerp(-6 - ex.brow * 3, 11, bl).toFixed(2);
+    $(`lidF${sd}`).setAttribute('d', `M -26,-1 C -12,${cy} 12,${cy} 26,-1 L 26,-30 L -26,-30 Z`);
+    $(`lidL${sd}`).setAttribute('d', `M -23,-1 C -12,${cy} 12,${cy} 23,-1`);
+  }
+  $('browL').setAttribute('transform', `translate(0,${(-ex.brow * 14).toFixed(2)}) rotate(${(-ex.brow * 4).toFixed(2)},-58,-220)`);
+  $('browR').setAttribute('transform', `translate(0,${(-ex.brow * 14).toFixed(2)}) rotate(${(ex.brow * 4).toFixed(2)},58,-220)`);
+  const wO = ex.open, wS = ex.smile * (1 - ex.open), wN = clamp(1 - wO - wS);
+  $('mN').setAttribute('opacity', wN.toFixed(2)); $('mS').setAttribute('opacity', wS.toFixed(2)); $('mO').setAttribute('opacity', wO.toFixed(2));
+
+  const armBob = breathe * 2;
+  let Lt = [pose.L[0], pose.L[1] + armBob], Rt = [pose.R[0], pose.R[1] + armBob];
+  // clipboard grip: hands follow the board
+  const clipOn = t > 9.85 && t < 17.7;
+  const clipY = 262 + Math.sin(t * 1.6) * 4 - (t < 10.4 ? (1 - EASE.out(seg(t, 9.85, 10.4))) * 40 : 0);
+  if (clipOn && t > 10.0 && t < 17.45) { Lt = [-146, clipY]; Rt = [146, clipY]; }
+  // push the case toward the customer
+  const cxw = caseX(t);
+  if (t > 45.5 && t < 46.55) Lt = [cxw + 360 - 650 + 6, 330];
+  const AL = solveArm('L', Lt, DOWN, pose.k), AR = solveArm('R', Rt, DOWNR, pose.k);
+  drawArm('L', AL); drawArm('R', AR);
+  drawHand('L', AL, pose.hL, pose.rL); drawHand('R', AR, pose.hR, pose.rR);
+
+  /* ---- props */
+  const clip = $('clip'), cIn = seg(t, 9.85, 10.15), cOut = seg(t, 17.45, 17.7);
+  clip.setAttribute('opacity', (t > 9.85 && t < 17.7 ? clamp(cIn * 3) * (1 - cOut) : 0).toFixed(2));
+  clip.setAttribute('transform', `translate(650,${(1060 + clipY - 4).toFixed(1)}) rotate(${(-3 + Math.sin(t * 1.3) * 1.5).toFixed(2)}) scale(${(.9 * lerp(.7, 1, EASE.outBack(cIn))).toFixed(3)})`);
+  [10.8, 11.2, 11.6, 15.0].forEach((t0, i) => CLIPCHK[i].setAttribute('opacity', t > t0 ? 1 : 0));
+  const ph = $('phone'), pOn = t > 18.15 && t < 19.75;
+  ph.setAttribute('opacity', pOn ? clamp(seg(t, 18.15, 18.35) * 3) * (1 - seg(t, 19.55, 19.75)) : 0);
+  const pw = [650 + AR.W[0] - 4, 1060 + AR.W[1] - 74];
+  ph.setAttribute('transform', `translate(${pw[0].toFixed(1)},${pw[1].toFixed(1)}) rotate(-8)`);
+  const cnt = t < 18.4 ? 0 : Math.min(7, 1 + Math.floor((t - 18.4) / .11));
+  $('phCount').textContent = cnt; $('phBadge').setAttribute('opacity', cnt > 0 && t < 19.3 ? 1 : 0);
+  $('phDone').setAttribute('opacity', t >= 19.3 ? 1 : 0);
+
+  // boxes drop in, then get unpacked when the build starts
+  for (const [id, , x, w, h, by, t0] of BOXES) {
+    const el = $(id), p = seg(t, t0 - .4, t0), out = seg(t, 25.85, 26.2);
+    if (t < t0 - .4 || out >= 1) { el.setAttribute('opacity', 0); continue; }
+    const dy = lerp(-760, 0, EASE.outBack(p)), sq = t > t0 && t < t0 + .2 ? 1 - .08 * Math.sin(seg(t, t0, t0 + .2) * Math.PI) : 1;
+    el.setAttribute('opacity', (clamp(p * 4) * (1 - out)).toFixed(2));
+    el.setAttribute('transform', `translate(${x + w / 2},${(by + dy).toFixed(1)}) scale(${(1 / sq * (1 - out * .3)).toFixed(3)},${(sq * (1 - out * .3)).toFixed(3)}) translate(${-w / 2},0)`);
+  }
+
+  /* ---- PC case */
+  const pc = $('pc'), cin = seg(t, CASE_IN, CASE_IN + .35);
+  const lift = -24 * EASE.inOut(seg(t, EXIT[0], EXIT[0] + .3));
+  pc.setAttribute('opacity', t < CASE_IN ? 0 : clamp(cin * 3).toFixed(2));
+  pc.setAttribute('transform', `translate(${cxw.toFixed(1)},${(1112 + lift).toFixed(1)}) translate(180,420) scale(${lerp(.82, 1, EASE.outBack(cin)).toFixed(3)}) translate(-180,-420)`);
+  for (const [id, t0] of PARTS) {
+    const el = $(id), p = seg(t, t0 - .3, t0);
+    if (t < t0 - .3) { el.setAttribute('opacity', 0); continue; }
+    el.setAttribute('opacity', clamp(p * 3).toFixed(2));
+    const base = id === 'pGPU' ? 'translate(36,206) ' : '';
+    el.setAttribute('transform', `${base}translate(0,${lerp(id === 'pMB' ? -320 : -210, 0, EASE.outBack(p)).toFixed(1)})`);
+  }
+  const cab = $('cables'), tidy = EASE.inOut(seg(t, CABLES[0], CABLES[1]));
+  cab.setAttribute('opacity', t > 26.75 ? clamp(seg(t, 26.75, 27.0) * 2).toFixed(2) : 0);
+  for (const k of ['A', 'B', 'C']) { const d = BLEND(CAB[k][0], CAB[k][1], tidy); $(`cab${k}`).setAttribute('d', d); $(`cab${k}h`).setAttribute('d', d); }
+  ZIPEL.forEach((z, i) => z.setAttribute('opacity', t > ZIPS[i] ? 1 : 0));
+  const gl = seg(t, GLASS_ON, GLASS_ON + .3);
+  $('glass').setAttribute('opacity', (EASE.out(gl) * .95).toFixed(2));
+  $('glass').setAttribute('transform', `translate(${lerp(120, 0, EASE.out(gl)).toFixed(1)},0)`);
+  const on = t >= POWER_ON, testing = t > 35.4 && t < 41.4;
+  $('caseGlow').setAttribute('opacity', on ? (.12 + .06 * Math.sin(t * 4)).toFixed(3) : 0);
+  $('pwrLed').setAttribute('fill', on ? C.green : '#39424f');
+  document.querySelectorAll('.fanRing').forEach(e => e.setAttribute('opacity', on ? .95 : 0));
+  document.querySelectorAll('.rgbGlow').forEach(e => e.setAttribute('opacity', on ? 1 : .35));
+  pc.setAttribute('filter', on ? `hue-rotate(${((t * 90) % 360).toFixed(0)}deg)` : '');
+  const spin = on ? (t - POWER_ON) * 900 + (testing ? (t - 35.4) * 1400 : t >= 41.4 ? 6 * 1400 : 0) : 0;
+  ['ff1', 'ff2', 'ff3', 'cf'].forEach((id, i) => $(id).setAttribute('transform', `rotate(${(spin * (1 + i * .07)).toFixed(1)})`));
+
+  /* ---- customer */
+  const cux = cuX(t), walking = (t > CU_IN[0] && t < CU_IN[1]) || (t > EXIT[0] && t < EXIT[1]);
+  const step = walking ? Math.abs(Math.sin(t * 9)) : 0, hop = t > CONF_T && t < CONF_T + 1.2 ? Math.abs(Math.sin((t - CONF_T) * 7.8)) * 14 * (1 - seg(t, CONF_T, CONF_T + 1.2)) : 0;
+  const cuY = 1092 - step * 12 - hop, cuT = `translate(${cux.toFixed(1)},${cuY.toFixed(1)}) rotate(${(walking ? Math.sin(t * 9) * 2 : 0).toFixed(2)}) scale(.95)`;
+  for (const id of ['cuG', 'cuArmsG', 'cuHandsG']) $(id).setAttribute('transform', cuT);
+  const cuVis = t > CU_IN[0] - .05 && t < EXIT[1] + .05;
+  for (const id of ['cuG', 'cuArmsG', 'cuHandsG']) $(id).setAttribute('opacity', cuVis ? 1 : 0);
+  if (cuVis) {
+    const sw = walking ? Math.sin(t * 9) * 40 : 0;
+    const onCase = [(cxw + 290 - cux) / .95, (1112 - cuY) / .95 + 12];
+    let Lc = [-200, 420 + sw], Rc = [200, 420 - sw], hLc = 'relax', hRc = 'relax', rLc = -20, rRc = 20, kL = 1, kR = 1;
+    if (t > 46.4 && t < EXIT[0] + .6) { Rc = onCase; rRc = -84; kR = .84; }
+    if (t > 46.75 && t < EXIT[0]) { Lc = [-196, 30 + Math.sin(t * 6) * 6]; hLc = 'thumb'; rLc = 180; kL = .86; }
+    if (t >= EXIT[0]) { Lc = [-230, 380 + sw]; }
+    const AcL = ikSolve([-196, 104], Lc, 168 * kL, 156 * kL, [-0.6, 0.8]), AcR = ikSolve([196, 104], Rc, 168 * kR, 156 * kR, [0.85, 0.5]);
+    limbUpdate('cuaL', AcL); limbUpdate('cuaR', AcR);
+    drawHand('cuL', AcL, hLc, rLc); drawHand('cuR', AcR, hRc, rRc);
+    const cb = BLINKS.reduce((b, t0) => Math.max(b, pulse(t, t0 + .7, .06, .05, .08)), 0);
+    $('cuEyeL').setAttribute('transform', `translate(-40,-150) scale(1,${(1 - cb * .9).toFixed(2)})`);
+    $('cuEyeR').setAttribute('transform', `translate(40,-150) scale(1,${(1 - cb * .9).toFixed(2)})`);
+    CUIRIS.forEach(e => e.setAttribute('transform', `translate(${t > 46.8 && t < 48.6 ? 0 : 4},0)`));
+  }
+
+  fxAnim(t);
+
+  /* ---- overlay */
+  textAnim(t);
+  $('shade').setAttribute('opacity', tk([[0, .55], [9.4, .55], [10.0, 1], [25.8, 1], [26.3, .6], [34.7, .6], [35.2, 1], [43.8, 1], [44.5, .75], [50.8, .75], [51.4, .7], [59, .7]], t).toFixed(3));
+
+  // tracker: big roadmap, then the progress bar at the top
+  const trk = $('trk'), tIn = seg(t, 6.45, 6.75);
+  trk.setAttribute('opacity', t < 6.45 ? 0 : clamp(tIn * 3).toFixed(2));
+  const up = EASE.inOut(seg(t, 9.4, 10.0));
+  trk.setAttribute('transform', `translate(540,${lerp(640, 250, up).toFixed(1)}) scale(${(lerp(1.22, 1, up) * lerp(.7, 1, EASE.outBack(tIn))).toFixed(4)}) translate(-540,0)`);
+  const STEP_T = [10.0, 18.0, 26.0, 35.0, 44.0, 51.0];
+  let active = -1; for (let i = 0; i < 5; i++) if (t >= STEP_T[i]) active = i;
+  for (let i = 0; i < 5; i++) {
+    const done = t >= STEP_T[i + 1], isAct = i === active && !done;
+    const pop = EASE.outBack(seg(t, 6.6 + i * .3, 6.9 + i * .3));
+    $(`tnc${i}`).setAttribute('opacity', done ? clamp(seg(t, STEP_T[i + 1], STEP_T[i + 1] + .2) * 5).toFixed(2) : 0);
+    $(`tnr${i}`).setAttribute('opacity', isAct ? (.6 + .4 * Math.sin(t * 5)).toFixed(2) : 0);
+    $(`tnl${i}`).setAttribute('fill', isAct || done ? C.ink : C.ink3);
+    $(`tni${i}`).setAttribute('transform', `scale(${pop.toFixed(3)})`);
+  }
+  let fillX = 160;
+  for (let i = 0; i < 4; i++) fillX += 190 * EASE.inOut(seg(t, STEP_T[i + 1] - .3, STEP_T[i + 1]));
+  $('trkFill').setAttribute('d', `M 160,0 H ${fillX.toFixed(1)}`);
+
+  // plan: budget bar fills segment by segment
+  let segX = 110;
+  SEGS.forEach(([, f], i) => {
+    const t0 = 12.3 + i * .6, k = EASE.out(seg(t, t0, t0 + .5)), w = Math.max(0, 860 * f * k - 3);
+    $(`seg${i}`).setAttribute('x', segX.toFixed(1)); $(`seg${i}`).setAttribute('width', w.toFixed(1));
+    $(`segL${i}`).setAttribute('opacity', clamp(seg(t, t0 + .3, t0 + .5)).toFixed(2));
+    segX += 860 * f;
+  });
+  $('fitBadge').setAttribute('opacity', clamp(seg(t, 15.0, 15.25) * 1).toFixed(2));
+  $('fitBadge').setAttribute('transform', `translate(110,866) scale(${lerp(.8, 1, EASE.outBack(seg(t, 15.0, 15.3))).toFixed(3)})`);
+
+  // buy: rows tick as the boxes land
+  BOXES.forEach((b, i) => {
+    const t0 = b[6];
+    $(`buyRow${i}`).setAttribute('opacity', t >= t0 ? 1 : .35);
+    $(`buyChk${i}`).setAttribute('opacity', t >= t0 ? 1 : 0);
+    $(`buyChk${i}`).setAttribute('transform', `translate(922,${618 + i * 54 - 10}) scale(${lerp(.4, 1, EASE.outBack(seg(t, t0, t0 + .25))).toFixed(3)})`);
+  });
+
+  // stress test dashboard
+  const tt = Math.max(0, t - 35.6), runK = seg(t, 35.6, 36.3);
+  for (const [id, y0, idle, max, tau, seed] of [['cpu', 576, 38, 71, 1.6, 1], ['gpu', 724, 34, 66, 2.0, 2]]) {
+    const load = Math.round(100 * EASE.out(runK));
+    $(`${id}Load`).setAttribute('width', (380 * load / 100).toFixed(1));
+    $(`${id}LoadT`).textContent = `LOAD ${load}%`;
+    const pts = [], dur = Math.min(tt, 6);
+    for (let k = 0; k <= 60; k++) {
+      const st = dur * k / 60, temp = st <= 0 ? idle : tempCurve(st, idle, max, tau, seed);
+      pts.push(`${(524 + 452 * (st / 6)).toFixed(1)},${(y0 + 134 - (temp - 25) / 75 * 120).toFixed(1)}`);
+    }
+    $(`${id}Line`).setAttribute('d', 'M ' + pts.join(' L '));
+    $(`${id}Temp`).textContent = `${Math.round(tt <= 0 ? idle : tempCurve(Math.min(tt, 6), idle, max, tau, seed))} °C`;
+  }
+  const mem = Math.round(100 * clamp((t - 35.8) / 5.4));
+  $('memBar').setAttribute('width', (680 * mem / 100).toFixed(1));
+  $('memT').textContent = mem >= 100 ? 'COMPLETE' : `TESTING ${mem}%`;
+  $('memE').setAttribute('opacity', mem >= 100 ? 1 : 0);
+  const passed = t >= 41.4;
+  $('tsChip').setAttribute('fill', passed ? C.green : C.yellow); $('tsChip').setAttribute('stroke', passed ? C.green : C.yellow);
+  $('tsChipT').setAttribute('fill', passed ? C.green : C.yellow); $('tsChipT').textContent = passed ? 'PASSED' : 'RUNNING';
+
+  // confetti bursts from where the case sits on screen
+  confettiAnim(t, [(140 - 230) * .76 + 540, (1100 - 1250) * .76 + 1590]);
+  $('ctGlow').setAttribute('opacity', (.35 + .3 * (1 + Math.sin((t - 53) * 5)) / 2).toFixed(3));
+
+  const streaks = [5.9, 9.45, 17.95, 25.95, 34.95, 43.95, 50.95];
+  let sk = -1; for (const t0 of streaks) if (t >= t0 && t < t0 + .3) sk = (t - t0) / .3;
+  $('streakG').setAttribute('opacity', sk >= 0 ? (.35 * Math.sin(sk * Math.PI)).toFixed(3) : 0);
+  $('streak').setAttribute('x', (-500 + sk * 1900).toFixed(1));
+  $('flash').setAttribute('opacity', Math.max(pulse(t, 30.6, .01, .02, .1) * .16, pulse(t, POWER_ON, .02, .02, .2) * .14, pulse(t, 41.4, .01, .02, .12) * .14).toFixed(3));
+}
+
+/* ------------------------------------------------------------ audio cue list (read by make_audio.py) */
+window.CUES = {
+  bpm: 100, duration: DUR,
+  sections: { intro: [0, 6], plan: [10, 18], buy: [18, 26], build: [26, 35], test: [35, 44], yours: [44, 51], cta: [51, DUR] },
+  whoosh: [5.9, 9.45, 17.95, 25.95, 34.95, 43.95, 50.95],
+  pop: [0.05, 1.2, 2.2, 3.2, 6.0, 6.25, 6.6, 6.9, 7.2, 7.5, 7.8, 10.05, 10.7, 11.1, 11.5, 11.9, 18.05, 26.05, 35.05, 35.4, 44.95, 51.2, 52.4, 54.0, 54.8],
+  tick: [10.8, 11.2, 11.6, 12.3, 12.9, 13.5, 14.1, 18.4, 18.51, 18.62, 18.73, 18.84, 18.95, 19.06],
+  chime: [15.0],
+  kaching: [19.3],
+  thump: BOXES.map(b => b[6]),
+  check: BOXES.map(b => b[6] + .04),
+  stamp: [23.4, 41.4],
+  click: PARTS.map(p => p[1]),
+  zip: ZIPS, glass: [GLASS_ON], power: [POWER_ON],
+  fanUp: [35.3], fanHum: [35.6, 41.4],
+  blips: Array.from({ length: 19 }, (_, i) => 35.7 + i * .3),
+  pass: [41.4],
+  steps: [44.4, 44.7, 45.0, 45.3, 50.1, 50.4, 50.7],
+  slide: [45.5, 46.5],
+  popper: [46.8],
+  yay: [46.9],
+  ding: [53.0],
+  impacts: [0, 30.6, 53.0],
+  endHit: [58.0],
+};
+
+/* ------------------------------------------------------------ boot */
+window.renderFrame = renderFrame;
+renderFrame(0);
+window.READY = true;
+
+if (!RENDER) {
+  document.body.classList.add('preview');
+  const stage = $('stage'), wrap = $('wrap');
+  const fit = () => { const k = Math.min((innerHeight - 70) / 1920, (innerWidth - 20) / 1080); stage.style.transform = `scale(${k})`; wrap.style.width = 1080 * k + 'px'; wrap.style.height = 1920 * k + 'px'; };
+  fit(); addEventListener('resize', fit);
+  let playing = true, t0 = performance.now(), tCur = 0;
+  const scrub = $('scrub'), tc = $('tc'), btn = $('play');
+  const loop = now => { if (playing) { tCur = ((now - t0) / 1000) % DUR; scrub.value = tCur; } renderFrame(tCur); tc.textContent = tCur.toFixed(2) + 's'; requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+  const toggle = () => { playing = !playing; btn.textContent = playing ? 'Pause' : 'Play'; t0 = performance.now() - tCur * 1000; };
+  btn.onclick = toggle; addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); toggle(); } });
+  scrub.oninput = () => { tCur = +scrub.value; t0 = performance.now() - tCur * 1000; };
+}
+</script>
+</body>
+</html>
