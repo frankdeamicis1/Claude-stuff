@@ -1,35 +1,44 @@
 # PC build story: voiceover script + captions
 
-59 s, 1080×1920. You build a gaming PC start to finish: plan, buy, build,
-stress test, hand it to a happy customer. Then the CTA: "In San Diego? DM me."
+60 s, 1080×1920, for Reels and TikTok. You build a gaming PC start to finish:
+plan, buy, build, stress test, hand it to a happy customer. Then the CTA:
+"In San Diego? DM me."
 
-Two versions:
+## Which file to use
 
-- `out/pc-build-story.mp4`: soft music bed + sound effects, mixed quiet (about -30 LUFS) so your voice sits on top
-- `out/pc-build-story-sfx-only.mp4`: sound effects only, if you'd rather add a trending sound
+- `out/pc-build-story.mp4`: **record over this one.** Read-along captions + quiet music + sound effects.
+- `out/pc-build-story-sfx-only.mp4`: same read-along captions, sound effects only (add a trending sound).
+- `out/pc-build-story-clean.mp4`: no captions, if you'd rather use the app's auto-captions after recording.
 
-## Voiceover (word for word)
+## How to record so it lines up
 
-The tracker at the top shows which step you're on, so you don't have to hit
-the exact second. Just start each line when its step comes up.
+You don't need to memorize anything or watch a clock. The video tells you what to say and when:
 
-| Time | On screen | You say |
+1. **The word you should be saying lights up yellow.** Captions show each phrase a moment before you say it. Just read along.
+2. **The hook, "I handle it", and the ending have no captions.** The big text pops up on the exact word instead, so read it as it appears: "powerful"… "reliable"… "fits your budget".
+3. Start talking right away: the first word is at 0:00.4.
+4. Do one practice run with the sound on, then record.
+
+**Easier still: record one step at a time.** Instagram, TikTok and CapCut all let you stop and restart the voiceover. Each line starts right when its step starts (times below), so if you mess one up, redo just that line.
+
+The lines are short on purpose: about 2 words a second with real pauses, slower than the last video.
+
+| Starts | On screen | You say |
 |---|---|---|
-| 0:00 | "You want a gaming PC that's" Powerful / Reliable / In your budget | You want a gaming PC that's actually powerful, doesn't crash on you, and fits your budget. |
-| 0:06 | "I handle it. Start to finish." + the 5 steps | That's what I do. Here's how it works, start to finish. |
-| 0:10 | 1 PLAN: budget, games, monitor → budget bar | First, you tell me your budget, the games you play, and your monitor. I plan the whole build around that. |
-| 0:18 | 2 BUY: parts list fills up, boxes land, "Works together" | Then I buy the parts and make sure they all work together. I'm going for value, not the flashiest box. |
-| 0:26 | 3 BUILD: parts click in, cables cleaned up, lights on | Then I build it. Every part seated right, cables cleaned up, and it actually looks good when the lights come on. |
-| 0:35 | 4 STRESS TEST: CPU, GPU, memory at full load → "All tests passed" | Then I stress test it. Full load, watching the temps. If something's going to fail, it fails on my bench, not at your house. |
-| 0:44 | 5 IT'S YOURS: customer, thumbs up, confetti | Then it's yours. Plug it in and play. That's it. |
-| 0:51 | "Want one built for your budget? In San Diego? DM me" | In San Diego? Want one built for your budget? DM me your budget and what you play. |
+| 0:00 | "You want a gaming PC that's" Powerful / Reliable / Fits your budget | You want a gaming PC that's powerful, reliable, and fits your budget. |
+| 0:06 | "I handle it. Start to finish." | I handle it. Start to finish. |
+| 0:10 | Step 1 PLAN: budget, games, monitor → budget bar | Step one. Your budget, your games, your monitor. I plan the build around that. |
+| 0:18 | Step 2 BUY: phone order, boxes land, "Works together" | Step two. I buy the parts and make sure they all work together. |
+| 0:26 | Step 3 BUILD: parts click in, cables cleaned up, lights on | Step three. I build it clean. Every part seated right, cables cleaned up. |
+| 0:35 | Step 4 STRESS TEST: full load → "All tests passed" | Step four. I stress test it. If something's going to fail, it fails on my bench, not at your house. |
+| 0:45 | Step 5 IT'S YOURS: customer, thumbs up, confetti | Step five. It's yours. Plug it in and play. |
+| 0:52 | IN SAN DIEGO? → DM ME → your budget + what you play | In San Diego? DM me your budget and what you play. I'll tell you what I'd build. |
 
-### Recording tips
+### Sound
 
-- The background audio is mixed quiet on purpose: about -30 LUFS overall, with every hit capped at -12 dBFS. A normal speaking voice is around -16 to -14 LUFS, so you sit about 10 dB or more on top.
-- Leave the video's original sound at 100% and record at your normal volume, with the phone about a hand's width from your mouth.
-- If your voice still sounds buried (phone far away, quiet delivery), turn the original sound down to about 70%. That works better than pushing your voice up.
-- If you add auto-captions, drag them down over the workbench. The top half already has the on-screen text.
+- The background audio is mixed quiet on purpose: about -30 LUFS overall, every hit capped at -12 dBFS. A normal speaking voice is around -16 to -14 LUFS, so you sit about 10 dB or more on top.
+- Leave the video's original sound at 100% and talk at your normal volume, with the phone about a hand's width from your mouth.
+- If you still sound buried, turn the original sound down to about 70% rather than pushing your voice up.
 
 ## Instagram caption
 
@@ -69,6 +78,6 @@ Check that your TikTok message settings let people who don't follow you send you
 ## Notes
 
 - The budget bar in step 1 is an example split (graphics card biggest, then CPU, then board/RAM/SSD, then power supply/case). It has no dollar amounts on purpose.
-- The temps in the stress test (around 70 °C CPU, 66 °C GPU) are illustrative, not from a real build.
+- The temps in the stress test (around 70 °C CPU, 65 °C GPU) are illustrative, not from a real build.
 - The customer is a cartoon, not a real person, and there's no quote or review in their mouth.
-- To change any text, edit `story.html` and run `./build.sh`.
+- To change a line, edit `VO` in `story.html` (each line's start time + text). The captions, word timing, cartoon mouth and on-screen pops all follow it. Then run `./build.sh`.

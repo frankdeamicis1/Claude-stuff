@@ -14,7 +14,7 @@ const { spawn } = require('child_process');
 const { chromium } = require('playwright');
 
 const FPS = 30;
-const PAGE = 'file://' + path.resolve(__dirname, 'story.html') + '?render=1';
+const PAGE = 'file://' + path.resolve(__dirname, 'story.html') + '?render=1' + (process.env.LAYER ? '&layer=' + process.env.LAYER : '');
 
 async function openPage() {
   const browser = await chromium.launch();
@@ -30,7 +30,7 @@ async function openPage() {
 
 async function shoot(page, t, file) {
   await page.evaluate(tt => window.renderFrame(tt), t);
-  await page.screenshot({ path: file, type: 'png', clip: { x: 0, y: 0, width: 1080, height: 1920 } });
+  await page.screenshot({ path: file, type: 'png', clip: { x: 0, y: 0, width: 1080, height: 1920 }, omitBackground: process.env.LAYER === 'captions' });
 }
 
 async function main() {
