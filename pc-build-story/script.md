@@ -80,4 +80,4 @@ Check that your TikTok message settings let people who don't follow you send you
 - The budget bar in step 1 is an example split (graphics card biggest, then CPU, then board/RAM/SSD, then power supply/case). It has no dollar amounts on purpose.
 - The temps in the stress test (around 70 °C CPU, 65 °C GPU) are illustrative, not from a real build.
 - The customer is a cartoon, not a real person, and there's no quote or review in their mouth.
-- To change a line, edit `VO` in `story.html` (each line's start time + text). The captions, word timing, cartoon mouth and on-screen pops all follow it. Then run `./build.sh`.
+- To change a line, edit `VO` in `story.html` (each line's start time + text). The captions, word timing and on-screen pops all follow it. Then run `./build.sh`.

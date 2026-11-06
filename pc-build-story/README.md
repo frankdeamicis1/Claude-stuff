@@ -16,7 +16,7 @@ Same pipeline as `../pc-build-reel`, and the same avatar rig and PC art.
 
 | File | What it does |
 |---|---|
-| `story.html` | The whole animation as one SVG scene. `renderFrame(t)` draws any moment. The `VO` list (each line's start time + words) drives the karaoke captions, the cartoon mouth and the on-screen pops. Open it in Chrome to preview (space = play/pause). `?layer=base` / `?layer=captions` render the two layers separately. |
+| `story.html` | The whole animation as one SVG scene. `renderFrame(t)` draws any moment. The `VO` list (each line's start time + words) drives the karaoke captions and the on-screen pops. Open it in Chrome to preview (space = play/pause). `?layer=base` / `?layer=captions` render the two layers separately. |
 | `render.js` | Captures every frame with headless Chromium (Playwright), in parallel. |
 | `make_audio.py` | Synthesizes the music bed and sound effects with numpy from the page's cue list. No licensed audio. |
 | `build.sh` | Renders the picture and the transparent caption layer, overlays them, and encodes all three MP4s with ffmpeg. |

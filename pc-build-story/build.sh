@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Renders the PC build story end to end.
-#   ./build.sh [workers]            (REUSE_VIDEO=1 WORK_DIR=... re-does only the audio)
+#   ./build.sh [workers]            (WORK_DIR=... with REUSE_VIDEO=1 redoes only the audio,
+#                                    REUSE_CAPTIONS=1 keeps the rendered caption layer)
 # out/pc-build-story.mp4            read-along captions + quiet music bed + sound effects (record over this one)
 # out/pc-build-story-sfx-only.mp4   read-along captions + sound effects only (add your own music)
 # out/pc-build-story-clean.mp4      no captions + quiet music bed + sound effects
@@ -22,12 +23,17 @@ if [ "${REUSE_VIDEO:-0}" = 1 ] && [ -f "$WORK/video.mp4" ] && [ -f "$WORK/video_
   echo "3/5 + 4/5 reusing $WORK/video.mp4 and video_cap.mp4"
 else
   echo "3/5 rendering frames ($WORKERS workers)"
-  rm -f "$WORK"/frames/*.png "$WORK"/capframes/*.png
+  rm -f "$WORK"/frames/*.png
   LAYER=base node render.js all "$WORK/frames" "$WORKERS"
   # shellcheck disable=SC2086
   ffmpeg -y -hide_banner -loglevel error -framerate 30 -i "$WORK/frames/%05d.png" $ENC "$WORK/video.mp4"
-  echo "4/5 rendering the read-along captions (transparent layer) and overlaying them"
-  LAYER=captions node render.js all "$WORK/capframes" "$WORKERS"
+  echo "4/5 read-along captions (transparent layer), overlaid on the picture"
+  if [ "${REUSE_CAPTIONS:-0}" = 1 ] && [ -f "$WORK/capframes/00000.png" ]; then
+    echo "  reusing caption frames"
+  else
+    rm -f "$WORK"/capframes/*.png
+    LAYER=captions node render.js all "$WORK/capframes" "$WORKERS"
+  fi
   # shellcheck disable=SC2086
   ffmpeg -y -hide_banner -loglevel error -i "$WORK/video.mp4" -framerate 30 -i "$WORK/capframes/%05d.png" \
     -filter_complex "[0:v][1:v]overlay=0:0:format=auto,format=yuv420p" $ENC "$WORK/video_cap.mp4"
