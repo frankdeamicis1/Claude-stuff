@@ -5,8 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>3080 vs 5070</title>
 <!--
-  Animated reel: why an RTX 3080 (2020) and an RTX 5070 (2025) are close in raw raster.
-  1080x1920, 30 fps, 59.5 s, made for Frank to voice over (read-along captions).
+  Animated reel: why an RTX 3080 (2020) and an RTX 5070 (2025) are close in raw raster,
+  then what that costs: a used 3080 is about half the price of a new 5070 (price per FPS).
+  1080x1920, 30 fps, 80.9 s, made for Frank to voice over (read-along captions).
   renderFrame(t) draws any moment; open in Chrome to preview (space = play/pause).
 -->
 <style>
@@ -28,11 +29,11 @@
 </head>
 <body>
 <div id="wrap"><div id="stage"><svg id="svg" width="1080" height="1920" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
-<div id="ui"><button id="play">Pause</button><input id="scrub" type="range" min="0" max="59.5" step="0.0333" value="0"><span id="tc">0.00s</span></div>
+<div id="ui"><button id="play">Pause</button><input id="scrub" type="range" min="0" max="80.9" step="0.0333" value="0"><span id="tc">0.00s</span></div>
 <script>
 'use strict';
 const W = 1080, H = 1920, FPS = 30;
-const WARP = [[0, 0], [59.5, 59.5]];          // no time warp in this one
+const WARP = [[0, 0], [80.9, 80.9]];          // no time warp in this one
 const DUR = WARP[WARP.length - 1][0];
 function warpMap(x, from, to) {
   for (let i = 1; i < WARP.length; i++) {
@@ -475,6 +476,11 @@ const pill = (id, x, y, text, color, size = 40, extra = '') => `<g id="${id}" op
     <rect class="pillBg" x="-150" y="${-size * .95}" width="300" height="${size * 1.5}" rx="${size * .75}" fill="${color}" fill-opacity=".16" stroke="${color}" stroke-width="4"/>
     <text class="pillTx hd" x="0" y="${size * .02}" text-anchor="middle" font-size="${size}" fill="${color === C.yellow ? C.yellow : C.ink}">${text}</text></g>`;
 const FPS_OLD = 82.0, FPS_NEW = 96.4, PXF = 5.5;      // Tom's Hardware 2026 hierarchy, 1440p Ultra, native raster
+// Prices checked Nov 16 2026. Used RTX 3080: eBay sold-listing median (pcprice.watch, 406 sales in the 90 days to
+// Nov 14 2026). New RTX 5070: Amazon (bestvaluegpu / PC Gamer price watch, Nov 2026). PXD = bar px per dollar.
+const PRICE_OLD = 469, PRICE_NEW = 909, PXD = .62;
+// price per FPS, using the FPS shown on screen (82 and 96): $5.72 vs $9.47
+const PPF_OLD = PRICE_OLD / Math.round(FPS_OLD), PPF_NEW = PRICE_NEW / Math.round(FPS_NEW);
 const GRID = { old: 144, new: 102 };                   // one square = ~60 CUDA cores (8,704 vs 6,144)
 function coreGrid(id, cx, n, col) {
   let s = '';
@@ -515,6 +521,24 @@ function winRow(id, y, ic, title, sub, right, col) {
     <text x="206" y="${y + 56}" font-size="40" class="hd" fill="${C.ink}">${title}</text>
     <text x="206" y="${y + 98}" font-size="27" class="md" fill="${C.ink2}">${sub}</text>
     <text x="980" y="${y + 78}" text-anchor="end" font-size="42" class="hd" fill="${col}">${right}</text></g>`;
+}
+function priceRow(id, y, name, sub, usd, col) {
+  return `<g id="${id}" opacity="0" transform="translate(0,0)">
+    <text x="70" y="${y + 32}" font-size="42" class="hd" fill="${C.ink}">${name}</text><text x="70" y="${y + 68}" font-size="26" class="bd" fill="${C.ink3}">${sub}</text>
+    <rect x="320" y="${y}" width="${PRICE_NEW * PXD}" height="58" rx="12" fill="#121a38"/>
+    <rect id="${id}Bar" x="320" y="${y}" width="0" height="58" rx="12" fill="${col}"/>
+    <text id="${id}V" x="0" y="${y + 42}" font-size="38" class="hd tn" fill="${C.ink}">$0</text></g>`;
+}
+// price per FPS: the card, then the division, then the answer (3 groups so each lands on its own word)
+function ppfCard(id, y, name, cond, usd, fps, ppf, col) {
+  return `<g id="${id}" opacity="0" transform="translate(0,0)">
+    <rect x="70" y="${y}" width="940" height="210" rx="26" fill="url(#cardGrad)" stroke="#2b3453" stroke-width="3"/>
+    <rect x="70" y="${y + 26}" width="10" height="158" rx="5" fill="${col}"/>
+    <rect id="${id}Hl" x="63" y="${y - 7}" width="954" height="224" rx="32" fill="none" stroke="${C.yellow}" stroke-width="6" opacity="0"/>
+    <text x="112" y="${y + 68}" font-size="42" class="hd" fill="${C.ink}">${name}<tspan font-size="30" class="bd" fill="${C.ink3}" dx="14">· ${cond}</tspan></text></g>
+  <g id="${id}E" opacity="0" transform="translate(112,${y + 152})"><text x="0" y="0" font-size="50" class="bd tn" fill="${C.ink2}">$${usd} ÷ ${fps} FPS</text></g>
+  <g id="${id}R" opacity="0" transform="translate(840,${y + 124})"><text x="140" y="0" text-anchor="end" font-size="100" class="hd tn" fill="${col}">$${ppf.toFixed(2)}</text>
+    <text x="140" y="46" text-anchor="end" font-size="28" class="bd" fill="${C.ink3}">per FPS</text></g>`;
 }
 function overlay3() {
   return `<g id="ov">
@@ -586,6 +610,25 @@ function overlay3() {
     ${winRow('wr2', 604, 'bolt', 'Power', '250 W vs 320 W', '−70 W', NEW)}
     ${tx('w4', 540, 800, 26, 'md', C.ink3, 'NVIDIA’s “5070 = 4090 performance” claim had multi frame gen on.', SH)}
 
+    <!-- 6: price check (used vs new) -->
+    ${tx('p0', 540, 240, 50, 'hd', C.ink, 'PRICE CHECK', SH)}
+    ${tx('p1', 540, 290, 30, 'bd', C.ink3, 'used on eBay vs new on Amazon · Nov 2026', SH)}
+    ${priceRow('pRowA', 388, 'RTX 3080', 'used · eBay', PRICE_OLD, OLD)}
+    ${priceRow('pRowB', 548, 'RTX 5070', 'new · Amazon', PRICE_NEW, NEW)}
+    <g id="pHalfLine" opacity="0" transform="translate(0,0)">
+      <line x1="${(320 + PRICE_NEW * PXD / 2).toFixed(1)}" y1="368" x2="${(320 + PRICE_NEW * PXD / 2).toFixed(1)}" y2="628" stroke="${C.yellow}" stroke-width="4" stroke-dasharray="10 9"/>
+      <text x="${(320 + PRICE_NEW * PXD / 2).toFixed(1)}" y="356" text-anchor="middle" font-size="34" class="hd" fill="${C.yellow}">½</text></g>
+    ${pill('pHalf', 540, 732, 'ABOUT HALF THE PRICE', C.yellow, 42)}
+    ${tx('p3', 540, 834, 24, 'md', C.ink3, 'Used 3080: median of 406 eBay sold listings, last 90 days', SH)}
+    ${tx('p4', 540, 870, 24, 'md', C.ink3, 'New 5070: Amazon · both checked mid-November 2026', SH)}
+
+    <!-- 7: price per FPS -->
+    ${tx('q0', 540, 240, 50, 'hd', C.ink, 'PRICE PER FPS', SH)}
+    ${tx('q1', 540, 290, 30, 'bd', C.ink3, 'price ÷ FPS (1440p Ultra) · lower is better', SH)}
+    ${ppfCard('qA', 336, 'RTX 3080', 'used', PRICE_OLD, Math.round(FPS_OLD), PPF_OLD, OLD)}
+    ${ppfCard('qB', 586, 'RTX 5070', 'new', PRICE_NEW, Math.round(FPS_NEW), PPF_NEW, NEW)}
+    ${tx('q3', 540, 870, 24, 'md', C.ink3, 'FPS from the raster chart: Tom’s Hardware, 1440p Ultra, native', SH)}
+
     <!-- CTA: each line appears on the word you say it -->
     <g id="ctSD" opacity="0" transform="translate(540,486)" filter="url(#shadow)">
       <g id="ctPin" transform="translate(-260,-26)"><path d="M 0,40 C -6,30 -32,6 -32,-12 C -32,-30 -18,-44 0,-44 C 18,-44 32,-30 32,-12 C 32,6 6,30 0,40 Z" fill="${C.yellow}" stroke="#0b0d12" stroke-width="5"/><circle cx="0" cy="-13" r="11" fill="#0b0d12"/></g>
@@ -635,13 +678,14 @@ const POSES = {
   thumbsUp: { L: [-150, 418], R: [236, 64], hL: 'relax', hR: 'thumb', rL: -28, rR: 180, k: .86 },
   ctaPoint: { L: [-150, 418], R: [258, -128], hL: 'relax', hR: 'point', rL: -28, rR: 186, k: 1 },
 };
-// arms rest at the sides; a point-up only when a key graphic lands (+18%, same math, 10x cache, DM ME)
+// arms rest at the sides; a point-up only when a key graphic lands (+18%, same math, 10x cache, half the price, DM ME)
 const POSE_TL = [
   [0, 0, 'side'],
   [10.21, 10.61, 'pointUp'], [12.9, 13.3, 'side'],
   [22.63, 23.03, 'pointUp'], [24.0, 24.35, 'side'],
   [31.05, 31.45, 'pointUp'], [33.0, 33.4, 'side'],
-  [50.6, 51.0, 'ctaPoint'], [55.6, 56.0, 'side'],
+  [57.7, 58.1, 'pointUp'], [60.0, 60.4, 'side'],
+  [72.0, 72.4, 'ctaPoint'], [77.0, 77.4, 'side'],
 ];
 function poseAt(t) {
   let cur = POSES[POSE_TL[0][2]], prev = cur, p = 1;
@@ -660,14 +704,15 @@ const EXPR = {
   happy:    { brow: .45, smile: 1, open: 0, look: [0, 0], tilt: -3 },
 };
 const EXPR_TL = [[0, 'friendly'], [6.6, 'talk'], [10.5, 'smug'], [13.6, 'up'], [22.8, 'smug'], [24.4, 'up'], [31.3, 'smug'],
-  [33.6, 'up'], [36.4, 'smug'], [39.9, 'up'], [47.6, 'happy']];
+  [33.6, 'up'], [36.4, 'smug'], [39.9, 'up'], [48.9, 'talk'], [58.1, 'smug'], [59.8, 'up'], [65.95, 'smug'], [68.9, 'happy']];
 function exprAt(t) {
   let i = 0; for (let k = 0; k < EXPR_TL.length; k++) if (t >= EXPR_TL[k][0]) i = k;
   const cur = EXPR[EXPR_TL[i][1]], prev = i > 0 ? EXPR[EXPR_TL[i - 1][1]] : cur;
   const p = EASE.inOut(seg(t, EXPR_TL[i][0], EXPR_TL[i][0] + .25));
   const o = {}; for (const k in cur) o[k] = mix(prev[k], cur[k], p); return o;
 }
-const BLINKS = [2.7, 5.9, 9.6, 12.4, 16.2, 19.4, 22.1, 26.5, 29.8, 34.1, 37.5, 41.2, 44.6, 50.4, 53.6, 57.2];
+const BLINKS = [2.7, 5.9, 9.6, 12.4, 16.2, 19.4, 22.1, 26.5, 29.8, 34.1, 37.5, 41.2, 44.6, 50.4, 53.6, 57.2,
+  61.0, 64.3, 67.5, 71.2, 74.5, 77.9];
 const blinkAt = t => BLINKS.reduce((b, t0) => Math.max(b, pulse(t, t0, .06, .05, .08)), 0);
 
 /* ------------------------------------------------------------ camera */
@@ -676,7 +721,7 @@ const CAMS = {
   split: [0.8, 650, 1300, 540, 1620],
   cta: [1.0, 640, 1200, 540, 1540], cta2: [1.04, 640, 1200, 540, 1540],
 };
-const CAM_TL = [[0, 'hero'], [6.2, 'hero2', 'lin'], [6.75, 'split'], [48.7, 'split'], [49.35, 'cta'], [DUR, 'cta2', 'lin']].map(([t, n, e]) => [t, CAMS[n], e]);
+const CAM_TL = [[0, 'hero'], [6.2, 'hero2', 'lin'], [6.75, 'split'], [70.1, 'split'], [70.75, 'cta'], [DUR, 'cta2', 'lin']].map(([t, n, e]) => [t, CAMS[n], e]);
 
 /* ------------------------------------------------------------ voiceover: the words Frank says, and when (seconds)
    Captions, graph timing and on-screen pops hang off these word times. */
@@ -687,21 +732,27 @@ const VO = [
   [24.6, "The 3080 even has more memory bandwidth. The 5070 makes up for it with almost 10 times the cache."],
   [33.8, "And the 5070 chip is less than half the size, on a newer process."],
   [40.1, "Where the 5070 pulls ahead is frame generation, 2 more gigs of VRAM, and 70 watts less power."],
-  [49.1, "In San Diego County? DM me your budget and what you play. I'll tell you which one I'd go with."],
+  // the prices come from PRICE_OLD / PRICE_NEW, so the words, the bars and the $/FPS math always match
+  [49.1, `But a used 3080 sells for about $${PRICE_OLD} on eBay. A new 5070 is $${PRICE_NEW} on Amazon. That's about half the price.`],
+  [60.0, `Let's do the math real quick. Price divided by FPS, the 3080 is $${PPF_OLD.toFixed(2)}. The 5070 is $${PPF_NEW.toFixed(2)}.`],
+  [70.5, "In San Diego County? DM me your budget and what you play. I'll tell you which one I'd go with."],
 ];
-// relaxed read: ~2.2 words/s; numbers and spelled-out acronyms take longer; real pauses at punctuation
+// relaxed read: ~2.2 words/s; numbers, dollar amounts and spelled-out acronyms take longer; real pauses at punctuation
 const VOW = VO.map(([start, text]) => {
   const words = text.split(' '), out = []; let t = start;
   words.forEach((w, i) => {
     const core = w.replace(/[^A-Za-z0-9]/g, ''), n = core.length;
-    const d = /\d/.test(core) ? .16 + .12 * n : (/^[A-Z]{2,4}$/.test(core) ? .16 + .15 * n : .16 + .05 * n);
+    const d = /^\$/.test(w) ? .3 + .15 * n : /\d/.test(core) ? .16 + .12 * n : (/^[A-Z]{2,4}$/.test(core) ? .16 + .15 * n : .16 + .05 * n);
     out.push({ w, t0: t, t1: t + d, n }); t += d;
     if (i < words.length - 1) t += /[.?!]$/.test(w) ? .42 : /[,:]$/.test(w) ? .22 : .03;
   });
   return out;
 });
 const Wr = (l, i) => VOW[l][i].t0, Wd = (l, i) => toDesign(Wr(l, i)), lineEnd = l => VOW[l][VOW[l].length - 1].t1;
-const SEC = { intro: [0, 6.6], bars: [6.6, 13.7], math: [13.7, 24.4], mem: [24.4, 33.6], chip: [33.6, 39.9], wins: [39.9, 48.9], cta: [48.9, DUR] };
+const SEC = { intro: [0, 6.6], bars: [6.6, 13.7], math: [13.7, 24.4], mem: [24.4, 33.6], chip: [33.6, 39.9], wins: [39.9, 48.9],
+  price: [48.9, 59.8], ppf: [59.8, 70.3], cta: [70.3, DUR] };
+const PBAR_A = [Wd(6, 7) - .15, Wd(6, 7) + .85], PBAR_B = [Wd(6, 14) - .15, Wd(6, 14) + 1.05];   // count up on "$469" / "$909"
+const QHL = Wd(7, 17) + .45;                     // after "$9.47": ring the cheaper-per-frame card
 
 /* ------------------------------------------------------------ text timing [id, in, out, type] */
 const TXT = [
@@ -717,7 +768,13 @@ const TXT = [
   ['d0', 33.75, 39.75, 'up'], ['dieA', 33.9, 39.75, 'up'], ['dieB', Wd(4, 2) - .1, 39.75, 'up'],
   ['dLabA', 34.2, 39.75, 'up'], ['dLabB', Wd(4, 3), 39.75, 'up'], ['dHalf', Wd(4, 7) - .08, 39.75, 'slam'],
   ['w0', 40.05, 48.75, 'up'], ['wr0', Wd(5, 6) - .1, 48.75, 'up'], ['wr1', Wd(5, 8) - .1, 48.75, 'up'], ['wr2', Wd(5, 14) - .1, 48.75, 'up'], ['w4', Wd(5, 16), 48.75, 'up'],
-  ['ctSD', Wd(6, 0) - .12, 60, 'slam'], ['ctBox', Wd(6, 4) - .06, 60, 'slam'], ['ctC', Wd(6, 6) - .08, 60, 'up'], ['ctE', Wd(6, 12) - .08, 60, 'up'], ['ctD', toDesign(lineEnd(6)) + .25, 60, 'up'],
+  ['p0', 49.05, 59.65, 'up'], ['p1', 49.25, 59.65, 'up'], ['pRowA', Wd(6, 2) - .1, 59.65, 'up'], ['pRowB', Wd(6, 10) - .1, 59.65, 'up'],
+  ['p3', Wd(6, 16), 59.65, 'up'], ['p4', Wd(6, 16) + .15, 59.65, 'up'], ['pHalfLine', Wd(6, 19) - .08, 59.65, 'fade'], ['pHalf', Wd(6, 19) - .08, 59.65, 'slam'],
+  ['q0', 59.95, 70.15, 'up'], ['qA', 60.15, 70.15, 'up'], ['qB', 60.4, 70.15, 'up'], ['q1', Wd(7, 6) - .1, 70.15, 'up'],
+  ['qAE', Wd(7, 7) - .08, 70.15, 'up'], ['qBE', Wd(7, 9) - .08, 70.15, 'up'], ['q3', Wd(7, 9) + .3, 70.15, 'up'],
+  ['qAR', Wd(7, 13) - .08, 70.15, 'pop'], ['qBR', Wd(7, 17) - .08, 70.15, 'pop'],
+  ['ctSD', Wd(8, 0) - .12, DUR + 1, 'slam'], ['ctBox', Wd(8, 4) - .06, DUR + 1, 'slam'], ['ctC', Wd(8, 6) - .08, DUR + 1, 'up'], ['ctE', Wd(8, 12) - .08, DUR + 1, 'up'],
+  ['ctD', toDesign(lineEnd(8)) + .25, DUR + 1, 'up'],
 ];
 const BASE = {};
 for (const [id] of TXT) { const m = /translate\(([-\d.]+),([-\d.]+)\)(.*)/.exec($(id).getAttribute('transform')); BASE[id] = [parseFloat(m[1]), parseFloat(m[2]), m[3] || '']; }
@@ -737,7 +794,7 @@ function textAnim(t) {
 }
 
 /* ------------------------------------------------------------ karaoke captions (your script, the word to say lights up) */
-const CAP_Y = { 0: 720, 1: 1062, 2: 1062, 3: 1062, 4: 1062, 5: 1062 };   // VO line -> caption baseline. The CTA line uses the big on-screen text instead.
+const CAP_Y = { 0: 720, 1: 1062, 2: 1062, 3: 1062, 4: 1062, 5: 1062, 6: 1062, 7: 1062 };   // VO line -> caption baseline. The CTA line uses the big on-screen text instead.
 const CAPS = [];
 (function buildCaptions() {
   if (LAYER === 'base') return;
@@ -817,7 +874,7 @@ const BLADES = [...document.querySelectorAll('.g80-bl'), ...document.querySelect
 const BAR_A = [7.25, 8.35], BAR_B = [Wd(1, 0) + .5, Wd(1, 0) + 1.7];
 function camAt(t) {
   const c = tk(CAM_TL, t); let sx = 0, sy = 0;
-  for (const [t0, amp] of [[Wd(0, 6), 8], [Wd(6, 4), 10]]) {
+  for (const [t0, amp] of [[Wd(0, 6), 8], [Wd(8, 4), 10]]) {
     const k = seg(t, t0, t0 + .3); if (t >= t0 && k < 1) { const d = (1 - k) * amp; sx += Math.sin(t * 93) * d; sy += Math.cos(t * 71) * d; }
   }
   return { c, sx, sy };
@@ -852,7 +909,7 @@ function renderFrame(T) {
   /* ---- Frank (mouth stays shut) */
   const ex = exprAt(t), bl = blinkAt(t), breathe = Math.sin(t * Math.PI * .9), pose = poseAt(t);
   $('fTorso').setAttribute('transform', `translate(0,${(breathe * 2).toFixed(2)})`);
-  const nod = [[Wd(1, 10), .8], [Wd(2, 18), .8], [Wd(6, 4), .8]].reduce((a, [t0, d]) => a + (t > t0 && t < t0 + d ? Math.sin(seg(t, t0, t0 + d) * Math.PI * 2) * 3 : 0), 0);
+  const nod = [[Wd(1, 10), .8], [Wd(2, 18), .8], [Wd(6, 19), .8], [Wd(7, 13), .8], [Wd(8, 4), .8]].reduce((a, [t0, d]) => a + (t > t0 && t < t0 + d ? Math.sin(seg(t, t0, t0 + d) * Math.PI * 2) * 3 : 0), 0);
   $('fHead').setAttribute('transform', `translate(0,${(breathe * 3 + nod * 2).toFixed(2)}) rotate(${(ex.tilt + Math.sin(t * .8) * 1.2).toFixed(2)},0,0)`);
   for (const sd of ['L', 'R']) {
     $(`iris${sd}`).setAttribute('transform', `translate(${ex.look[0].toFixed(2)},${ex.look[1].toFixed(2)})`);
@@ -871,7 +928,7 @@ function renderFrame(T) {
 
   /* ---- overlay */
   textAnim(t);
-  $('shade').setAttribute('opacity', tk([[0, .55], [6.3, .55], [6.8, 1], [48.7, 1], [49.3, .7], [DUR, .7]], t).toFixed(3));
+  $('shade').setAttribute('opacity', tk([[0, .55], [6.3, .55], [6.8, 1], [70.1, 1], [70.7, .7], [DUR, .7]], t).toFixed(3));
   BLADES.forEach(e => e.setAttribute('transform', `rotate(${(t * 420).toFixed(1)})`));
 
   // raw raster bars (Tom's Hardware 2026, 1440p Ultra, native)
@@ -904,8 +961,18 @@ function renderFrame(T) {
   // chip size: "newer process" lights the TSMC label
   $('dNode').setAttribute('fill', t > Wd(4, 12) - .05 ? C.yellow : C.ink3);
 
-  $('ctGlow').setAttribute('opacity', (.35 + .3 * (1 + Math.sin((t - Wd(6, 4)) * 5)) / 2).toFixed(3));
-  const streaks = [6.45, 13.6, 24.3, 33.5, 39.8, 48.8];
+  // price check: bars count up on "$469" / "$909"
+  for (const [id, usd, [a, b]] of [['pRowA', PRICE_OLD, PBAR_A], ['pRowB', PRICE_NEW, PBAR_B]]) {
+    const k = EASE.out(seg(t, a, b)), w = usd * PXD * k;
+    $(`${id}Bar`).setAttribute('width', w.toFixed(1));
+    const v = $(`${id}V`); v.setAttribute('x', (320 + w + 16).toFixed(1)); v.textContent = `$${Math.round(usd * k)}`;
+    v.setAttribute('opacity', seg(t, a, a + .12).toFixed(2));      // no "$0" while waiting for the word
+  }
+  // price per FPS: once both answers are up, ring the 3080's (lower = more frames per dollar)
+  $('qAHl').setAttribute('opacity', EASE.out(seg(t, QHL, QHL + .35)).toFixed(3));
+
+  $('ctGlow').setAttribute('opacity', (.35 + .3 * (1 + Math.sin((t - Wd(8, 4)) * 5)) / 2).toFixed(3));
+  const streaks = [6.45, 13.6, 24.3, 33.5, 39.8, 48.8, 59.7, 70.2];
   let sk = -1; for (const t0 of streaks) if (t >= t0 && t < t0 + .3) sk = (t - t0) / .3;
   $('streakG').setAttribute('opacity', sk >= 0 ? (.35 * Math.sin(sk * Math.PI)).toFixed(3) : 0);
   $('streak').setAttribute('x', (-500 + sk * 1900).toFixed(1));
@@ -915,12 +982,13 @@ function renderFrame(T) {
 const popT = TXT.filter(([, , , ty]) => ty === 'pop' || ty === 'slam').map(([, a]) => Math.max(.05, a));
 const ticks = ([a, b], n) => Array.from({ length: n }, (_, i) => a + (b - a) * i / n);
 const CUE_D = {
-  whoosh: [6.45, 13.6, 24.3, 33.5, 39.8, 48.8],
-  pop: [...popT, ...TXT.filter(([id]) => /^(b0|m0|c0|d0|w0|bRow|mCol|mem|die|wr)/.test(id)).map(([, a]) => a)],
-  tick: [...ticks(BAR_A, 10), ...ticks(BAR_B, 12), ...ticks([Wd(2, 13) + .1, Wd(2, 13) + 1.1], 8), ...ticks([Wd(2, 13) + .35, Wd(2, 13) + 1.35], 8)],
+  whoosh: [6.45, 13.6, 24.3, 33.5, 39.8, 48.8, 59.7, 70.2],
+  pop: [...popT, ...TXT.filter(([id]) => /^(b0|m0|c0|d0|w0|bRow|mCol|mem|die|wr|p0|pRow|q0|qA|qB)/.test(id)).map(([, a]) => a)],
+  tick: [...ticks(BAR_A, 10), ...ticks(BAR_B, 12), ...ticks([Wd(2, 13) + .1, Wd(2, 13) + 1.1], 8), ...ticks([Wd(2, 13) + .35, Wd(2, 13) + 1.35], 8),
+    ...ticks(PBAR_A, 9), ...ticks(PBAR_B, 12)],
   blips: [...ticks([Wd(2, 1), Wd(2, 1) + .86], 12), ...ticks([Wd(2, 6), Wd(2, 6) + .86], 9)],
-  chime: [Wd(1, 10), Wd(2, 18), Wd(3, 15), Wd(4, 7)],
-  ding: [Wd(6, 4)],
+  chime: [Wd(1, 10), Wd(2, 18), Wd(3, 15), Wd(4, 7), Wd(6, 19), QHL],
+  ding: [Wd(8, 4)],
   impacts: [Wd(0, 6)],
   endHit: [DUR - 1.3],
 };

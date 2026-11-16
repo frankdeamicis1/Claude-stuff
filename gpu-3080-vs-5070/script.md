@@ -1,7 +1,8 @@
 # RTX 3080 vs RTX 5070: voiceover script + captions
 
-59.5 s, 1080×1920, for Reels and TikTok. Why a 2020 RTX 3080 and a 2025 RTX 5070
-are close in raw raster, then the CTA: "In San Diego County? DM me."
+80.9 s, 1080×1920, for Reels and TikTok. Why a 2020 RTX 3080 and a 2025 RTX 5070
+are close in raw raster, what each one costs right now (a used 3080 is about half the
+price of a new 5070), the price per FPS, then the CTA: "In San Diego County? DM me."
 
 ## The file
 
@@ -19,7 +20,11 @@ Same as the last one: read the captions, and say the word that lights up yellow.
 | 0:25 | Bandwidth vs cache: 760 vs 672 GB/s, 5 MB vs 48 MB | The 3080 even has more memory bandwidth. The 5070 makes up for it with almost 10 times the cache. |
 | 0:34 | Chips to scale: 628 mm² vs 263 mm² | And the 5070 chip is less than half the size, on a newer process. |
 | 0:40 | Where the 5070 pulls ahead: frame gen, +2 GB, -70 W | Where the 5070 pulls ahead is frame generation, 2 more gigs of VRAM, and 70 watts less power. |
-| 0:49 | IN SAN DIEGO COUNTY? → DM ME → your budget + what you play | In San Diego County? DM me your budget and what you play. I'll tell you which one I'd go with. |
+| 0:49 | Price check: used 3080 $469 vs new 5070 $909, "about half the price" | But a used 3080 sells for about $469 on eBay. A new 5070 is $909 on Amazon. That's about half the price. |
+| 1:00 | Price per FPS: $469 ÷ 82 = $5.72, $909 ÷ 96 = $9.47 | Let's do the math real quick. Price divided by FPS, the 3080 is $5.72. The 5070 is $9.47. |
+| 1:10 | IN SAN DIEGO COUNTY? → DM ME → your budget + what you play | In San Diego County? DM me your budget and what you play. I'll tell you which one I'd go with. |
+
+Say the prices however feels natural ("four sixty-nine", "five seventy-two"); the yellow word gives you a bit of extra time on the dollar amounts.
 
 The background audio peaks are capped at -12 dBFS, so a normal speaking voice sits about 10 dB or more on top. Leave the original sound at 100% and talk normally.
 
@@ -37,6 +42,13 @@ Why it's that close:
 
 Where the 5070 wins: DLSS 4 multi frame gen, 12 GB of VRAM instead of 10, and 70 W less power.
 
+The price right now (mid-November 2026):
+- Used 3080 on eBay: about $469 (median sold price)
+- New 5070 on Amazon: $909
+So the used 3080 is about half the price.
+
+Price per FPS: $469 / 82 FPS = $5.72 for the 3080. $909 / 96 FPS = $9.47 for the 5070.
+
 DM me your budget and what you play, and I'll tell you which one I'd go with.
 
 #sandiego #gamingpc #pcbuild #rtx3080 #rtx5070
@@ -47,7 +59,7 @@ Set the post's location tag to San Diego so it gets shown to people nearby.
 ## TikTok caption
 
 ```
-In San Diego County? DM me your budget and what you play. A 3080 vs a 5070 is closer than you'd think.
+In San Diego County? DM me your budget and what you play. A used 3080 is about half the price of a new 5070, and the 5070 is only about 18% faster.
 
 #sandiego #gamingpc #rtx3080 #rtx5070
 ```
@@ -64,9 +76,14 @@ Check that your TikTok message settings let people who don't follow you send you
 - **Power:** 320 W vs 250 W total graphics power, so 70 W less.
 - **Frame gen:** DLSS 4 Multi Frame Generation is RTX 50-series only; RTX 30 cards don't get DLSS frame generation. NVIDIA's CES 2025 "RTX 5070 = 4090 performance" claim was made with multi frame gen on.
 - **The 3080 in the video is the 10 GB model.** There's also a rarer 12 GB version with 8,960 cores and a 384-bit bus.
-- **No prices on screen on purpose.** Used and new GPU prices moved a lot in 2026, so the video only compares specs and benchmarks.
+- **Used 3080 price, $469:** the median of 406 eBay sold listings in the 90 days to November 14, 2026 ([pcprice.watch](https://www.pcprice.watch/search/RTX3080/US/GPU)). The middle half sold between $416 and $530. Other trackers from the same few weeks: a $482 median ([pcprice.watch guide](https://www.pcprice.watch/guides/rtx3080-used-price-2026), November 4), a $394 average ([getpcparts](https://www.getpcparts.com/market-prices/gpu-graphics-cards/rtx-3080), October 31), and about $436 for a used ASUS TUF on eBay ([videocardprices](https://videocardprices.com/card/nvidia-rtx-3080/)). It's a used card, so most won't have warranty left.
+- **New 5070 price, $909:** Amazon's price in November 2026, per [bestvaluegpu](https://bestvaluegpu.com/history/new-and-used-rtx-5070-price-history-and-specs/) and [PC Gamer's price watch](https://www.pcgamer.com/hardware/graphics-cards/graphics-card-price-watch-deals/) (Walmart had it at $899). That's well above the $549 launch price.
+- **"About half the price":** 469 / 909 = 52%. Even with the highest used median above ($482) it's 53%.
+- **Price per FPS:** price divided by the 1440p Ultra FPS shown on screen (82 and 96): 469 / 82 = $5.72 and 909 / 96 = $9.47. With the unrounded 96.4 FPS it's $9.43. Either way the 5070 costs about 65% more per frame.
+- **Prices move.** If you post this more than a couple of weeks after mid-November 2026, check eBay sold listings and Amazon again (see Notes for how to update the numbers).
 
 ## Notes
 
 - To change a line, edit `VO` in `compare.html` (each line's start time + text). The captions and the on-screen timing follow it. Then run `./build.sh`.
-- Cartoon you keeps his mouth shut. His arms stay at his sides, except a point-up when a key graphic lands (+18%, same math, 10x cache, DM ME).
+- To update the prices, change `PRICE_OLD` (used 3080) and `PRICE_NEW` (new 5070) in `compare.html`. The voiceover line, the bars and the price-per-FPS math all follow those two numbers. Update the captions above and the "Nov 2026" labels in the video to match.
+- Cartoon you keeps his mouth shut. His arms stay at his sides, except a point-up when a key graphic lands (+18%, same math, 10x cache, about half the price, DM ME).
