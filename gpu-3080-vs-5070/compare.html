@@ -1,0 +1,958 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3080 vs 5070</title>
+<!--
+  Animated reel: why an RTX 3080 (2020) and an RTX 5070 (2025) are close in raw raster.
+  1080x1920, 30 fps, 59.5 s, made for Frank to voice over (read-along captions).
+  renderFrame(t) draws any moment; open in Chrome to preview (space = play/pause).
+-->
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; background: #04060c; }
+  #stage { width: 1080px; height: 1920px; overflow: hidden; background: #070a14; transform-origin: 0 0; }
+  svg { display: block; }
+  .hd { font-family: "Inter Display", "Inter", sans-serif; font-weight: 900; }
+  .bd { font-family: "Inter", "Inter Display", sans-serif; font-weight: 800; }
+  .md { font-family: "Inter", "Inter Display", sans-serif; font-weight: 600; }
+  .mono { font-family: "JetBrains Mono", monospace; font-weight: 800; }
+  .tn { font-feature-settings: "tnum" 1; }
+  body.preview { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 10px; color: #cfd8ee; font: 14px Inter, system-ui, sans-serif; }
+  #ui { display: none; gap: 8px; align-items: center; width: min(540px, 92vw); }
+  body.preview #ui { display: flex; }
+  #scrub { flex: 1; }
+  button { font: inherit; padding: 4px 10px; }
+</style>
+</head>
+<body>
+<div id="wrap"><div id="stage"><svg id="svg" width="1080" height="1920" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg"></svg></div></div>
+<div id="ui"><button id="play">Pause</button><input id="scrub" type="range" min="0" max="59.5" step="0.0333" value="0"><span id="tc">0.00s</span></div>
+<script>
+'use strict';
+const W = 1080, H = 1920, FPS = 30;
+const WARP = [[0, 0], [59.5, 59.5]];          // no time warp in this one
+const DUR = WARP[WARP.length - 1][0];
+function warpMap(x, from, to) {
+  for (let i = 1; i < WARP.length; i++) {
+    const a = WARP[i - 1], b = WARP[i];
+    if (x <= b[from] || i === WARP.length - 1) return a[to] + (b[to] - a[to]) * (x - a[from]) / (b[from] - a[from]);
+  }
+}
+const toDesign = T => warpMap(T, 0, 1), toReal = t => warpMap(t, 1, 0);
+const RENDER = /[?&]render=1/.test(location.search);
+// base = everything but captions, captions = only the karaoke captions (transparent), all = both
+const LAYER = new URLSearchParams(location.search).get('layer') || (RENDER ? 'base' : 'all');
+
+/* ------------------------------------------------------------------ utils */
+const clamp = (x, a = 0, b = 1) => x < a ? a : x > b ? b : x;
+const lerp = (a, b, k) => a + (b - a) * k;
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const EASE = {
+  lin: x => x,
+  in: x => x * x * x,
+  out: x => 1 - Math.pow(1 - x, 3),
+  inOut: x => x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2,
+  outBack: x => { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); },
+  outBig: x => { const c1 = 2.4, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); },
+  outExpo: x => x >= 1 ? 1 : 1 - Math.pow(2, -10 * x),
+  sine: x => -(Math.cos(Math.PI * x) - 1) / 2,
+  step: x => x < 1 ? 0 : 1,
+};
+const mix = (a, b, k) => Array.isArray(a) ? a.map((v, i) => v + (b[i] - v) * k) : a + (b - a) * k;
+function tk(keys, t) {               // keyframes: [time, value, easeIntoThisKey]
+  if (t <= keys[0][0]) return keys[0][1];
+  for (let i = 1; i < keys.length; i++) {
+    if (t <= keys[i][0]) {
+      const [t0, v0] = keys[i - 1], [t1, v1, e] = keys[i];
+      const p = t1 > t0 ? (t - t0) / (t1 - t0) : 1;
+      return mix(v0, v1, EASE[e || 'inOut'](p));
+    }
+  }
+  return keys[keys.length - 1][1];
+}
+function rng(seed) { return function () { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+const fmt = n => Math.round(n).toLocaleString('en-US');
+const $ = id => document.getElementById(id);
+const P = (x, y) => `${x.toFixed(1)},${y.toFixed(1)}`;
+const pulse = (t, t0, a, h, r) => t < t0 || t > t0 + a + h + r ? 0 : t < t0 + a ? (t - t0) / a : t < t0 + a + h ? 1 : 1 - (t - t0 - a - h) / r;
+
+/* ---------------------------------------------------------------- palette */
+const C = {
+  green: '#3DFF8F', blue: '#5B8CFF', red: '#FF6B4A', yellow: '#FFD23F', mag: '#FF3DCB', cyan: '#2EE6FF',
+  ink: '#FFFFFF', ink2: '#C9D3EA', ink3: '#93A1C2',
+  out: '#140e0b', skin: '#c98d66', skinD: '#a8714f', skinL: '#e2ac86',
+  hair: '#1c1411', hairM: '#2a1f1a', hairL: '#3d2e26',
+  cap: '#151518', seam: '#2c2c33', patch: '#cdb68b', patchD: '#8e7a55',
+  shirt: '#3e4c6c', shirtD: '#2c3750', lip: '#b0665f', mouth: '#2a1210',
+};
+
+/* ---------------------------------------------------- character geometry
+   Local coords: origin = neck joint, +y down. Head ~ -390..+95, torso below. */
+const FACE_D = 'M -104,-264 C -116,-232 -122,-192 -118,-150 C -114,-104 -88,-50 -46,-30 C -18,-18 18,-18 46,-30 C 88,-50 114,-104 118,-150 C 122,-192 116,-232 104,-264 Z';
+const HAIRB_D = 'M -126,-290 C -158,-258 -170,-210 -164,-166 C -160,-134 -184,-110 -180,-76 C -177,-48 -200,-30 -194,0 C -190,22 -208,34 -198,54 C -186,70 -160,64 -150,52 C -140,64 -118,64 -106,50 L 106,50 C 118,64 140,64 150,52 C 160,64 186,70 198,54 C 208,34 190,22 194,0 C 200,-30 177,-48 180,-76 C 184,-110 160,-134 164,-166 C 170,-210 158,-258 126,-290 Z';
+const BEARD_D = 'M -112,-212 C -120,-180 -124,-140 -126,-104 C -128,-64 -120,-30 -104,0 C -98,22 -88,36 -72,48 Q -60,62 -44,64 Q -32,78 -15,74 Q 0,86 15,74 Q 32,78 44,64 Q 60,62 72,48 C 88,36 98,22 104,0 C 120,-30 128,-64 126,-104 C 124,-140 120,-180 112,-212 C 100,-196 96,-168 88,-148 C 80,-130 66,-116 50,-108 C 30,-102 14,-106 0,-104 C -14,-106 -30,-102 -50,-108 C -66,-116 -80,-130 -88,-148 C -96,-168 -100,-196 -112,-212 Z';
+const MUST_D = 'M -54,-96 C -44,-118 -16,-118 0,-108 C 16,-118 44,-118 54,-96 C 58,-84 52,-70 40,-72 C 28,-74 14,-84 0,-84 C -14,-84 -28,-74 -40,-72 C -52,-70 -58,-84 -54,-96 Z';
+const TORSO_D = 'M -96,10 C -146,16 -200,36 -226,76 C -248,112 -256,172 -256,262 L -256,760 L 256,760 L 256,262 C 256,172 248,112 226,76 C 200,36 146,16 96,10 C 64,46 -64,46 -96,10 Z';
+const EYE_D = 'M -21,0 C -12,-12 12,-12 21,0 C 12,10 -12,10 -21,0 Z';
+const CAP_D = 'M -134,-250 C -140,-326 -88,-388 0,-390 C 88,-388 140,-326 134,-250 Q 0,-232 -134,-250 Z';
+/* ------------------------------------------------------------------ defs */
+function defs() {
+  return `<defs>
+  <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0c1226"/><stop offset=".6" stop-color="#0a0e1d"/><stop offset="1" stop-color="#05070f"/></linearGradient>
+  <linearGradient id="wallGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0b1022"/><stop offset="1" stop-color="#121a33"/></linearGradient>
+  <radialGradient id="gMag"><stop offset="0" stop-color="#c026d3" stop-opacity=".55"/><stop offset="1" stop-color="#c026d3" stop-opacity="0"/></radialGradient>
+  <radialGradient id="gCyan"><stop offset="0" stop-color="#06b6d4" stop-opacity=".5"/><stop offset="1" stop-color="#06b6d4" stop-opacity="0"/></radialGradient>
+  <radialGradient id="gGreen"><stop offset="0" stop-color="#3DFF8F" stop-opacity=".6"/><stop offset="1" stop-color="#3DFF8F" stop-opacity="0"/></radialGradient>
+  <radialGradient id="gWhite"><stop offset="0" stop-color="#ffffff" stop-opacity="1"/><stop offset=".4" stop-color="#ffffff" stop-opacity=".5"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></radialGradient>
+  <linearGradient id="rgb" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ff3dcb"/><stop offset=".5" stop-color="#8b5cf6"/><stop offset="1" stop-color="#2ee6ff"/></linearGradient>
+  <linearGradient id="rgbV" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2ee6ff"/><stop offset=".5" stop-color="#8b5cf6"/><stop offset="1" stop-color="#ff3dcb"/></linearGradient>
+  <linearGradient id="shirtGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#2d3852"/><stop offset=".22" stop-color="#3e4c6c"/><stop offset=".8" stop-color="#3e4c6c"/><stop offset="1" stop-color="#2b3550"/></linearGradient>
+  <linearGradient id="benchGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1a1f2e"/><stop offset="1" stop-color="#0c0f18"/></linearGradient>
+  <linearGradient id="topShade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#060914" stop-opacity=".94"/><stop offset=".8" stop-color="#060914" stop-opacity=".82"/><stop offset="1" stop-color="#060914" stop-opacity="0"/></linearGradient>
+  <radialGradient id="vignette" cx=".5" cy=".5" r=".72"><stop offset=".6" stop-color="#000" stop-opacity="0"/><stop offset="1" stop-color="#000" stop-opacity=".6"/></radialGradient>
+  <linearGradient id="streak" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".9"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  <linearGradient id="glassRefl" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#cfe6ff" stop-opacity=".16"/><stop offset=".45" stop-color="#cfe6ff" stop-opacity=".03"/><stop offset="1" stop-color="#cfe6ff" stop-opacity=".1"/></linearGradient>
+  <linearGradient id="laneGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0d1430"/><stop offset="1" stop-color="#070b1a"/></linearGradient>
+  <filter id="glow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="12" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="glowSm" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  <filter id="shadow" x="-20%" y="-30%" width="140%" height="170%"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#000" flood-opacity=".75"/></filter>
+  <filter id="blur24" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="24"/></filter>
+  <filter id="blur6"><feGaussianBlur stdDeviation="6"/></filter>
+  <pattern id="peg" width="46" height="46" patternUnits="userSpaceOnUse"><circle cx="23" cy="23" r="5" fill="#05070e"/><path d="M 18,20 A 5 5 0 0 1 28,20" fill="none" stroke="#202a4a" stroke-width="1.6"/></pattern>
+  <pattern id="pxgrid" width="12.5" height="12.5" patternUnits="userSpaceOnUse"><path d="M12.5 0 L0 0 0 12.5" fill="none" stroke="#000" stroke-opacity=".38" stroke-width="1.4"/></pattern>
+  <pattern id="vents" width="14" height="10" patternUnits="userSpaceOnUse"><rect x="2" y="3" width="10" height="4" rx="2" fill="#0a0d13"/></pattern>
+  <clipPath id="beardClip"><path d="${BEARD_D}"/></clipPath>
+  <clipPath id="hairClip"><path d="${HAIRB_D}"/></clipPath>
+  <clipPath id="eyeClip"><path d="${EYE_D}"/></clipPath>
+  <clipPath id="scanClip"><rect id="scanRect" x="-400" y="-225" width="800" height="0"/></clipPath>
+  <clipPath id="laneClipA"><rect x="-420" y="-250" width="840" height="236" rx="10"/></clipPath>
+  <clipPath id="laneClipB"><rect x="-420" y="14" width="840" height="236" rx="10"/></clipPath>
+</defs>`;
+}
+
+/* ------------------------------------------------------------- Frank body */
+function eye(s) {
+  return `<path d="${EYE_D}" fill="#f1ebe3"/>
+    <g clip-path="url(#eyeClip)"><g id="iris${s}"><circle r="9.6" fill="#3a2416"/><circle r="4.7" fill="#0d0705"/><circle cx="3.2" cy="-3.2" r="2.4" fill="#fff"/></g></g>
+    <path d="M -14,8 C -6,11 6,11 14,8" stroke="${C.skinD}" stroke-width="2" fill="none" opacity=".7"/>
+    <g id="lid${s}"><path id="lidF${s}" d="M -26,-1 C -12,-6 12,-6 26,-1 L 26,-30 L -26,-30 Z" fill="${C.skin}"/>
+      <path id="lidL${s}" d="M -23,-1 C -12,-6 12,-6 23,-1" stroke="#160d09" stroke-width="4.5" fill="none" stroke-linecap="round"/></g>`;
+}
+function strands(seed, n, box, color, w, op) {
+  const r = rng(seed); let s = '';
+  for (let i = 0; i < n; i++) {
+    const x = lerp(box[0], box[2], r()), y = lerp(box[1], box[3], r());
+    const dx = (r() - .5) * 18, len = 18 + r() * 26, curl = (r() - .5) * 16;
+    s += `<path d="M ${P(x, y)} q ${P(curl, len * .5)} ${P(dx, len)}" stroke="${color}" stroke-width="${w}" fill="none" stroke-linecap="round" opacity="${op}"/>`;
+  }
+  return s;
+}
+function frankBody() {
+  return `<g id="fBody">
+   <g id="fTorso">
+    <path d="${TORSO_D}" fill="url(#shirtGrad)" stroke="${C.out}" stroke-width="6" stroke-linejoin="round"/>
+    <path d="M -96,10 C -64,46 64,46 96,10" fill="none" stroke="${C.shirtD}" stroke-width="14"/>
+    <path d="M -214,150 C -204,250 -200,360 -204,520" stroke="${C.shirtD}" stroke-width="5" fill="none" opacity=".7"/>
+    <path d="M 214,150 C 204,250 200,360 204,520" stroke="${C.shirtD}" stroke-width="5" fill="none" opacity=".7"/>
+    <path d="M -40,300 C -20,330 20,334 40,306" stroke="${C.shirtD}" stroke-width="4" fill="none" opacity=".5"/>
+    <path d="M 86,170 L 170,170 L 170,248 Q 128,266 86,248 Z" fill="#3a4767" stroke="#26304a" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M 90,184 L 166,184" stroke="#26304a" stroke-width="2.5" stroke-dasharray="7 5"/>
+   </g>
+   <g id="fHead"><g transform="scale(1.1,1)">
+    <path d="${HAIRB_D}" fill="${C.hair}" stroke="${C.out}" stroke-width="6" stroke-linejoin="round"/>
+    <g clip-path="url(#hairClip)">
+      <path d="M -146,-220 C -156,-170 -140,-140 -158,-96 C -170,-62 -160,-30 -178,8 C -186,26 -180,40 -186,52" stroke="${C.hairL}" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M -132,-160 C -142,-122 -128,-94 -146,-50 C -156,-20 -144,10 -160,40" stroke="${C.hairL}" stroke-width="4" fill="none" stroke-linecap="round" opacity=".8"/>
+      <path d="M 146,-220 C 156,-170 140,-140 158,-96 C 170,-62 160,-30 178,8 C 186,26 180,40 186,52" stroke="${C.hairL}" stroke-width="5" fill="none" stroke-linecap="round"/>
+      <path d="M 132,-160 C 142,-122 128,-94 146,-50 C 156,-20 144,10 160,40" stroke="${C.hairL}" stroke-width="4" fill="none" stroke-linecap="round" opacity=".8"/>
+    </g>
+    <path d="${FACE_D}" fill="${C.skin}" stroke="${C.out}" stroke-width="6"/>
+    <path d="M -100,-250 Q 0,-228 100,-250 L 100,-232 Q 0,-212 -100,-232 Z" fill="${C.skinD}" opacity=".5"/>
+    <ellipse cx="-80" cy="-128" rx="22" ry="12" fill="#d77f66" opacity=".22"/>
+    <ellipse cx="80" cy="-128" rx="22" ry="12" fill="#d77f66" opacity=".22"/>
+    <path d="M -121,-258 C -130,-226 -128,-194 -117,-172 C -108,-196 -104,-228 -98,-254 Z" fill="${C.hair}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M 121,-258 C 130,-226 128,-194 117,-172 C 108,-196 104,-228 98,-254 Z" fill="${C.hair}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+    <g id="fBeard">
+      <path d="${BEARD_D}" fill="${C.hair}" stroke="${C.out}" stroke-width="6" stroke-linejoin="round"/>
+      <g clip-path="url(#beardClip)">${strands(7, 46, [-122, -170, 122, 80], C.hairL, 3.2, .85)}${strands(11, 20, [-110, -120, 110, 70], '#120c0a', 3, .7)}${strands(23, 14, [-80, -40, 80, 70], '#8e877f', 2.4, .7)}</g>
+    </g>
+    <g id="mN">
+      <path d="M -16,-79 C -8,-76 8,-76 16,-79 C 12,-69 -12,-69 -16,-79 Z" fill="${C.lip}" stroke="${C.out}" stroke-width="2.5"/>
+    </g>
+    <g id="mS" opacity="0">
+      <path d="M -24,-84 C -10,-77 10,-77 24,-84" stroke="${C.mouth}" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <path d="M -19,-80 C -8,-75 8,-75 19,-80 C 13,-69 -13,-69 -19,-80 Z" fill="${C.lip}" stroke="${C.out}" stroke-width="2.5"/>
+    </g>
+    <g id="mO" opacity="0">
+      <ellipse cx="0" cy="-72" rx="15" ry="18" fill="${C.mouth}" stroke="${C.out}" stroke-width="3"/>
+      <ellipse cx="0" cy="-61" rx="9" ry="5" fill="#c46b6b"/>
+    </g>
+    <path d="${MUST_D}" fill="${C.hairM}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+    <path d="M -46,-100 q -6,10 -4,20 M -30,-104 q -4,10 -2,20 M -14,-102 q -2,8 0,16 M 46,-100 q 6,10 4,20 M 30,-104 q 4,10 2,20 M 14,-102 q 2,8 0,16" stroke="${C.hairL}" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <g id="fNose">
+      <path d="M -10,-170 C -14,-150 -22,-138 -30,-126 C -38,-112 -26,-102 -14,-108 C -8,-100 8,-100 14,-108 C 26,-102 38,-112 30,-126 C 22,-138 14,-150 10,-170 Z" fill="${C.skin}"/>
+      <path d="M -30,-126 C -38,-112 -26,-102 -14,-108 C -8,-100 8,-100 14,-108 C 26,-102 38,-112 30,-126" stroke="${C.out}" stroke-width="4" fill="none" stroke-linecap="round"/>
+      <path d="M -10,-168 C -13,-150 -18,-140 -24,-130" stroke="${C.skinD}" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+      <ellipse cx="3" cy="-124" rx="8" ry="5.5" fill="${C.skinL}" opacity=".75"/>
+      <ellipse cx="-13" cy="-110" rx="5.5" ry="3" fill="#5a3324"/><ellipse cx="13" cy="-110" rx="5.5" ry="3" fill="#5a3324"/>
+    </g>
+    <g id="eyeL" transform="translate(-54,-174)">${eye('L')}</g>
+    <g id="eyeR" transform="translate(54,-174)">${eye('R')}</g>
+    <g id="browL"><path d="M -96,-210 C -82,-230 -48,-236 -20,-224 L -20,-210 C -48,-220 -78,-218 -96,-202 Z" fill="${C.hair}" stroke="${C.out}" stroke-width="3" stroke-linejoin="round"/></g>
+    <g id="browR"><path d="M 96,-210 C 82,-230 48,-236 20,-224 L 20,-210 C 48,-220 78,-218 96,-202 Z" fill="${C.hair}" stroke="${C.out}" stroke-width="3" stroke-linejoin="round"/></g>
+    <g id="fGlasses">
+      <rect x="-103" y="-211" width="96" height="70" rx="14" fill="#b9d7ff" fill-opacity=".10" stroke="#0d0d10" stroke-width="11"/>
+      <rect x="7" y="-211" width="96" height="70" rx="14" fill="#b9d7ff" fill-opacity=".10" stroke="#0d0d10" stroke-width="11"/>
+      <path d="M -8,-190 Q 0,-198 8,-190" stroke="#0d0d10" stroke-width="9" fill="none"/>
+      <path d="M -103,-198 L -123,-194 M 103,-198 L 123,-194" stroke="#0d0d10" stroke-width="9" stroke-linecap="round"/>
+      <path d="M -86,-152 L -60,-200 M 24,-152 L 50,-200" stroke="#fff" stroke-opacity=".26" stroke-width="7" stroke-linecap="round"/>
+      <path d="M -70,-150 L -54,-178 M 40,-150 L 56,-178" stroke="#fff" stroke-opacity=".16" stroke-width="4" stroke-linecap="round"/>
+    </g>
+    <g id="fCap">
+      <path d="${CAP_D}" fill="${C.cap}" stroke="${C.out}" stroke-width="6" stroke-linejoin="round"/>
+      <path d="M 0,-390 L 0,-306 M -74,-376 Q -102,-322 -108,-254 M 74,-376 Q 102,-322 108,-254" stroke="${C.seam}" stroke-width="3" fill="none"/>
+      <path d="M -122,-300 Q -60,-352 -20,-372" stroke="#2a2a31" stroke-width="10" fill="none" stroke-linecap="round" opacity=".7"/>
+      <circle cx="0" cy="-388" r="8" fill="${C.cap}" stroke="${C.out}" stroke-width="3"/>
+      <path d="M -56,-247 C -56,-286 -30,-304 0,-304 C 30,-304 56,-286 56,-247 Z" fill="${C.hairM}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+      <path d="M -40,-262 C -30,-280 -12,-292 6,-292" stroke="${C.hairL}" stroke-width="3" fill="none"/>
+      <rect x="-76" y="-268" width="144" height="32" rx="15" fill="${C.strap}"/>
+      <g clip-path="url(#strapClip)"><rect x="-76" y="-268" width="68" height="32" fill="${C.cow}"/>
+        <ellipse cx="-62" cy="-261" rx="9" ry="5" transform="rotate(-20,-62,-261)" fill="${C.cowSpot}"/><ellipse cx="-37" cy="-245" rx="9" ry="6" transform="rotate(14,-37,-245)" fill="${C.cowSpot}"/>
+        <ellipse cx="-19" cy="-263" rx="6" ry="4" fill="${C.cowSpot}"/><ellipse cx="-70" cy="-240" rx="6" ry="4" fill="${C.cowSpot}"/></g>
+      <rect x="-76" y="-268" width="144" height="32" rx="15" fill="none" stroke="${C.strapD}" stroke-width="3"/>
+      <path d="M -4,-261 H 58 M -4,-243 H 58" stroke="#a5835d" stroke-width="2" stroke-dasharray="5 4"/>
+      <circle cx="-56" cy="-251" r="3.4" fill="#2a1d14"/><circle cx="-43" cy="-251" r="3.4" fill="#2a1d14"/><circle cx="-30" cy="-251" r="3.4" fill="#2a1d14"/>
+    </g>
+   </g></g>
+  </g>`;
+}
+function frankArms() {
+  const arm = s => `<g id="arm${s}">
+      <path id="a${s}o1" stroke="${C.out}" stroke-width="98" stroke-linecap="round" fill="none"/>
+      <path id="a${s}o2" stroke="${C.out}" stroke-width="84" stroke-linecap="round" fill="none"/>
+      <path id="a${s}s1" stroke="${C.skin}" stroke-width="86" stroke-linecap="round" fill="none"/>
+      <path id="a${s}s2" stroke="${C.skin}" stroke-width="72" stroke-linecap="round" fill="none"/>
+      <g id="a${s}hair"><path d="M -16,46 l 6,10 M 10,70 l 6,10 M -8,98 l 5,9 M 14,118 l 4,9 M -18,128 l 5,8 M 2,40 l 5,9" stroke="#6b4632" stroke-width="3" stroke-linecap="round" opacity=".55"/></g>
+      <circle id="a${s}slOc" r="64" fill="${C.out}"/>
+      <path id="a${s}slO" stroke="${C.out}" stroke-width="128" fill="none"/>
+      <circle id="a${s}slFc" r="58" fill="${C.shirt}"/>
+      <path id="a${s}slF" stroke="${C.shirt}" stroke-width="116" fill="none"/>
+      <path id="a${s}hem2" stroke="${C.shirtD}" stroke-width="6" fill="none"/>
+      <path id="a${s}hem" stroke="${C.out}" stroke-width="6" fill="none" stroke-linecap="round"/>
+    </g>`;
+  return `<g id="fArms">${arm('L')}${arm('R')}</g>`;
+}
+function handShapes(s) {
+  const st = `fill="${C.skin}" stroke="${C.out}" stroke-width="5" stroke-linejoin="round"`;
+  const ln = `stroke="${C.out}" stroke-width="3" fill="none" stroke-linecap="round" opacity=".75"`;
+  return `
+   <g id="h${s}_relax">
+     <path d="M -30,2 C -37,28 -37,60 -29,80 C -23,95 -9,100 2,100 C 16,100 28,94 33,78 C 38,58 37,28 31,2 Z" ${st}/>
+     <path d="M 27,16 C 44,22 56,40 52,56 C 48,67 35,63 30,50 Z" ${st}/>
+     <path d="M -12,64 Q -12,82 -10,94 M 4,66 Q 4,84 6,98 M 18,64 Q 19,80 21,90" ${ln}/>
+   </g>
+   <g id="h${s}_fist">
+     <path d="M -33,2 C -39,22 -39,52 -33,68 C -25,82 25,82 33,68 C 39,52 39,22 33,2 Z" ${st}/>
+     <path d="M -22,56 Q -19,72 -11,75 M -4,58 Q 0,74 7,76 M 13,57 Q 18,71 25,70" ${ln}/>
+     <path d="M 31,24 C 18,34 0,40 -14,42 C -20,44 -19,52 -12,53 C 4,53 22,49 35,41 Z" fill="${C.skin}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+   </g>
+   <g id="h${s}_point">
+     <path d="M 8,44 L 10,122 C 10,134 28,134 28,122 L 28,44 Z" ${st}/>
+     <path d="M -33,2 C -39,20 -38,46 -32,60 C -24,72 14,72 22,60 C 30,46 36,20 33,2 Z" ${st}/>
+     <path d="M -24,48 Q -20,62 -12,64 M -8,52 Q -4,64 4,64" ${ln}/>
+     <path d="M 32,18 C 40,26 40,40 30,46 C 20,52 6,50 -4,44 C -10,40 -8,32 0,32 C 10,34 20,32 32,18 Z" fill="${C.skin}" stroke="${C.out}" stroke-width="4" stroke-linejoin="round"/>
+   </g>
+   <g id="h${s}_flat">
+     <rect x="-28" y="38" width="14" height="60" rx="7" ${st}/>
+     <rect x="-14" y="38" width="14" height="70" rx="7" ${st}/>
+     <rect x="0" y="38" width="14" height="68" rx="7" ${st}/>
+     <rect x="14" y="38" width="13" height="56" rx="6.5" ${st}/>
+     <path d="M -30,2 C -34,18 -33,40 -28,52 L 28,52 C 33,40 34,18 30,2 Z" ${st}/>
+     <path d="M 24,12 C 42,20 54,40 50,58 C 47,67 37,64 33,53 Z" ${st}/>
+   </g>
+   <g id="h${s}_spread">
+     <g transform="translate(-19,44) rotate(14)"><rect x="-6.5" y="-6" width="13" height="58" rx="6.5" ${st}/></g>
+     <g transform="translate(-7,48) rotate(5)"><rect x="-6.5" y="-6" width="13" height="70" rx="6.5" ${st}/></g>
+     <g transform="translate(6,48) rotate(-4)"><rect x="-6.5" y="-6" width="13" height="68" rx="6.5" ${st}/></g>
+     <g transform="translate(18,44) rotate(-13)"><rect x="-6" y="-6" width="12" height="54" rx="6" ${st}/></g>
+     <path d="M -29,2 C -34,16 -32,38 -24,50 L 26,50 C 33,38 34,16 29,2 Z" ${st}/>
+     <g transform="translate(-24,18) rotate(62)"><rect x="-7" y="-4" width="14" height="48" rx="7" ${st}/></g>
+   </g>
+   <g id="h${s}_thumb">
+     <path d="M 4,56 L 4,116 C 4,130 28,130 28,116 L 28,54 Z" ${st}/>
+     <path d="M -33,2 C -39,22 -39,52 -33,66 C -25,78 25,78 33,66 C 39,52 39,22 33,2 Z" ${st}/>
+     <path d="M -27,24 Q -2,30 22,24 M -28,42 Q -2,48 22,42 M -26,58 Q -4,64 18,58" ${ln}/>
+   </g>`;
+}
+function frankHands() {
+  return `<g id="fHands"><g id="hL">${handShapes('L')}</g><g id="hR"><g transform="scale(-1,1)">${handShapes('R')}</g></g></g>`;
+}
+
+/* ------------------------------------------------------------- GPU art */
+function gpuFront(id) {
+  let fans = '';
+  for (let i = 0; i < 3; i++) {
+    const cx = -140 + i * 140; let blades = '';
+    for (let b = 0; b < 9; b++) blades += `<path d="M 0,-14 C 16,-28 26,-46 18,-60 C 4,-56 -6,-36 -7,-16 Z" transform="rotate(${b * 40})" fill="#2c3240" stroke="#0b0d12" stroke-width="2"/>`;
+    fans += `<g transform="translate(${cx},2)">
+      <circle r="64" fill="#0b0d12" stroke="#343a48" stroke-width="5"/>
+      <circle r="58" fill="none" stroke="url(#rgb)" stroke-width="3.5" class="${id}-ring" opacity=".85"/>
+      <g class="${id}-bl">${blades}</g>
+      <circle r="19" fill="#171a21" stroke="#3c4352" stroke-width="3"/>
+      <circle r="6" fill="${C.green}" opacity=".85"/></g>`;
+  }
+  let fingers = '';
+  for (let i = 0; i < 18; i++) fingers += `<rect x="${-146 + i * 8}" y="88" width="5" height="12" fill="#a77c22"/>`;
+  return `<g id="${id}">
+    <rect x="-150" y="84" width="150" height="18" rx="2" fill="#d6a63c" stroke="${C.out}" stroke-width="3"/>${fingers}
+    <rect x="-236" y="-98" width="18" height="196" rx="3" fill="#9aa3b2" stroke="${C.out}" stroke-width="4"/>
+    <path d="M -222,-82 Q -222,-90 -214,-90 L 214,-90 Q 224,-90 224,-80 L 224,80 Q 224,90 214,90 L -214,90 Q -222,90 -222,82 Z" fill="#1b1f28" stroke="${C.out}" stroke-width="6"/>
+    <path d="M -214,-74 L -60,-74 L -44,-84 L 60,-84 L 76,-74 L 214,-74" stroke="#3a4152" stroke-width="4" fill="none"/>
+    <path d="M -214,74 L -150,74 L -136,84 M 136,84 L 150,74 L 214,74" stroke="#3a4152" stroke-width="4" fill="none"/>
+    <rect x="-200" y="-90" width="400" height="7" rx="3.5" fill="url(#rgb)"/>
+    ${fans}
+  </g>`;
+}
+function gpuSide() {          // side profile, as it sits in the case (origin = top-left)
+  return `<g>
+    <rect x="0" y="0" width="292" height="62" rx="8" fill="#1b1f28" stroke="${C.out}" stroke-width="4"/>
+    <rect x="10" y="4" width="272" height="7" rx="3.5" fill="url(#rgb)" class="rgbGlow"/>
+    <path d="M 14,48 L 120,48 L 132,40 L 278,40" stroke="#3a4152" stroke-width="3" fill="none"/>
+    <rect x="150" y="18" width="88" height="16" rx="4" fill="#0e1117" stroke="#3a4152" stroke-width="2"/>
+    <text x="194" y="31" text-anchor="middle" class="bd" font-size="13" fill="#7f8aa3" letter-spacing="2">GPU</text>
+    <rect x="290" y="-8" width="10" height="80" rx="2" fill="#9aa3b2" stroke="${C.out}" stroke-width="3"/>
+  </g>`;
+}
+function fan(id, r) {
+  let bl = '';
+  for (let b = 0; b < 7; b++) bl += `<path d="M 0,-${r * .3} C ${r * .3},-${r * .5} ${r * .42},-${r * .78} ${r * .28},-${r * .92} C ${r * .06},-${r * .86} -${r * .1},-${r * .58} -${r * .1},-${r * .32} Z" transform="rotate(${b * 51.4})" fill="#2a303d"/>`;
+  return `<g>
+    <circle r="${r}" fill="#0b0d12" stroke="#2a303c" stroke-width="5"/>
+    <circle r="${r - 4}" fill="none" stroke="url(#rgb)" stroke-width="4" class="fanRing" opacity="0"/>
+    <g class="fanBl" id="${id}">${bl}</g>
+    <circle r="${r * .28}" fill="#151820" stroke="#353c4a" stroke-width="2"/></g>`;
+}
+
+/* ------------------------------------------------------------ world */
+function worldBack() {
+  let shelfL = '', shelfR = '';
+  shelfL += `<rect x="40" y="690" width="120" height="70" rx="6" fill="#1a2140" stroke="#0a0d18" stroke-width="3"/><rect x="58" y="708" width="84" height="10" rx="3" fill="#2b3563"/>`;
+  shelfL += `<rect x="170" y="640" width="90" height="120" rx="6" fill="#151c38" stroke="#0a0d18" stroke-width="3"/><rect x="184" y="660" width="62" height="8" rx="3" fill="#2a3666"/>`;
+  shelfR += `<rect x="870" y="660" width="170" height="100" rx="6" fill="#18203f" stroke="#0a0d18" stroke-width="3"/><rect x="890" y="684" width="96" height="10" rx="3" fill="#2f3b6e"/><rect x="890" y="704" width="60" height="8" rx="3" fill="#26305c"/>`;
+  shelfR += `<rect x="1050" y="700" width="70" height="60" rx="6" fill="#141b36" stroke="#0a0d18" stroke-width="3"/>`;
+  return `<g id="wb">
+    <rect x="-600" y="-400" width="2400" height="1960" fill="url(#wallGrad)"/>
+    <rect x="-600" y="-400" width="2400" height="1960" fill="url(#peg)" opacity=".85"/>
+    <ellipse cx="400" cy="900" rx="620" ry="520" fill="url(#gMag)" opacity=".75"/>
+    <ellipse cx="930" cy="980" rx="560" ry="520" fill="url(#gCyan)" opacity=".7"/>
+    <g>${shelfL}<rect x="20" y="760" width="300" height="16" rx="4" fill="#232b47" stroke="#0a0d18" stroke-width="3"/></g>
+    <g>${shelfR}<rect x="840" y="760" width="300" height="16" rx="4" fill="#232b47" stroke="#0a0d18" stroke-width="3"/></g>
+    <rect x="-600" y="1010" width="2400" height="7" fill="url(#rgb)" opacity=".35" filter="url(#blur6)"/>
+  </g>`;
+}
+/* ------------------------------------------------------------ text helpers */
+function tx(id, x, y, size, cls, fill, content, extra = '') {
+  return `<g id="${id}" opacity="0" transform="translate(${x},${y})"><text x="0" y="0" text-anchor="middle" font-size="${size}" class="${cls}" fill="${fill}" ${extra}>${content}</text></g>`;
+}
+const hl = (s, c) => `<tspan fill="${c}">${s}</tspan>`;
+
+/* ------------------------------------------------------------ particles */
+function particles() {
+  const r = rng(42); let s = '';
+  const cols = [C.cyan, C.mag, C.green, '#8b5cf6'];
+  for (let i = 0; i < 34; i++) {
+    s += `<circle class="pt" data-x="${(r() * 1080).toFixed(1)}" data-y="${(r() * 1920).toFixed(1)}" data-s="${(10 + r() * 30).toFixed(1)}" data-p="${(r() * 6.28).toFixed(2)}" r="${(1.5 + r() * 3.5).toFixed(1)}" fill="${cols[i % 4]}" opacity=".4"/>`;
+  }
+  return `<g id="pts">${s}</g>`;
+}
+
+/* ------------------------------------------------------------ rig: arms/IK */
+const SHO = { L: [-212, 104], R: [212, 104] }, L1 = 190, L2 = 170;
+const PREF = { L: [-0.55, 0.83], R: [0.55, 0.83] };
+function solveArm(s, T, pref, k = 1) {
+  const S = SHO[s]; let dx = T[0] - S[0], dy = T[1] - S[1]; let d = Math.hypot(dx, dy) || 1e-3;
+  const L1 = 190 * k, L2 = 170 * k;
+  const maxD = L1 + L2 - 1, minD = Math.abs(L1 - L2) + 30;
+  if (d > maxD) { const k = maxD / d; dx *= k; dy *= k; d = maxD; } else if (d < minD) { const k = minD / d; dx *= k; dy *= k; d = minD; }
+  const ux = dx / d, uy = dy / d, a = (L1 * L1 - L2 * L2 + d * d) / (2 * d), h = Math.sqrt(Math.max(0, L1 * L1 - a * a));
+  const nx = -uy, ny = ux, pr = pref || PREF[s];
+  const sg = (nx * pr[0] + ny * pr[1]) >= 0 ? 1 : -1;
+  return { S, E: [S[0] + ux * a + nx * h * sg, S[1] + uy * a + ny * h * sg], W: [S[0] + dx, S[1] + dy] };
+}
+const angTo = (a, b) => Math.atan2(-(b[0] - a[0]), b[1] - a[1]) * 180 / Math.PI;
+function drawArm(s, A) {
+  const { S, E, W: Wr } = A;
+  const p1 = `M${P(S[0], S[1])} L${P(E[0], E[1])}`, p2 = `M${P(E[0], E[1])} L${P(Wr[0], Wr[1])}`;
+  $(`a${s}o1`).setAttribute('d', p1); $(`a${s}s1`).setAttribute('d', p1);
+  $(`a${s}o2`).setAttribute('d', p2); $(`a${s}s2`).setAttribute('d', p2);
+  const ux = E[0] - S[0], uy = E[1] - S[1], len = Math.hypot(ux, uy) || 1, vx = ux / len, vy = uy / len, px = -vy, py = vx;
+  const sl = Math.min(len * .62, 118), B = [S[0] - vx * 4, S[1] - vy * 4], Pp = [S[0] + vx * sl, S[1] + vy * sl], hw = 61;
+  const dS = `M${P(B[0], B[1])} L${P(Pp[0], Pp[1])}`;
+  $(`a${s}slO`).setAttribute('d', dS); $(`a${s}slF`).setAttribute('d', dS);
+  for (const id of [`a${s}slOc`, `a${s}slFc`]) { $(id).setAttribute('cx', B[0].toFixed(1)); $(id).setAttribute('cy', B[1].toFixed(1)); }
+  $(`a${s}hem`).setAttribute('d', `M${P(Pp[0] + px * hw, Pp[1] + py * hw)} L${P(Pp[0] - px * hw, Pp[1] - py * hw)}`);
+  const Ph = [Pp[0] - vx * 9, Pp[1] - vy * 9];
+  $(`a${s}hem2`).setAttribute('d', `M${P(Ph[0] + px * (hw - 4), Ph[1] + py * (hw - 4))} L${P(Ph[0] - px * (hw - 4), Ph[1] - py * (hw - 4))}`);
+  $(`a${s}hair`).setAttribute('transform', `translate(${P(E[0], E[1])}) rotate(${angTo(E, Wr).toFixed(1)})`);
+}
+const HANDS = ['relax', 'fist', 'point', 'flat', 'spread', 'thumb'];
+function drawHand(s, A, shape, rot) {
+  const a = rot == null ? angTo(A.E, A.W) : rot;
+  $(`h${s}`).setAttribute('transform', `translate(${P(A.W[0], A.W[1])}) rotate(${a.toFixed(1)})`);
+  for (const h of HANDS) $(`h${s}_${h}`).setAttribute('display', h === shape ? 'inline' : 'none');
+}
+Object.assign(C, {
+  orange: '#FFB547', purple: '#C084FC',
+  cuSkin: '#8b5a3c', cuSkinD: '#6e4429', cuHair: '#17100c', hood: '#1f8f8f', hoodD: '#166b6b',
+  strap: '#c9a57a', strapD: '#8a6a48', cow: '#efe4d0', cowSpot: '#5b3d29',
+});
+function defs2() {
+  return `<defs>
+    <linearGradient id="hoodGrad" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#156464"/><stop offset=".24" stop-color="#1f8f8f"/><stop offset=".78" stop-color="#1f8f8f"/><stop offset="1" stop-color="#135c5c"/></linearGradient>
+    <linearGradient id="boxGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#d9ad70"/><stop offset="1" stop-color="#b8894f"/></linearGradient>
+    <linearGradient id="cardGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#121a38"/><stop offset="1" stop-color="#0b1126"/></linearGradient>
+    <linearGradient id="safeZone" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3DFF8F" stop-opacity=".18"/><stop offset="1" stop-color="#3DFF8F" stop-opacity=".03"/></linearGradient>
+    <clipPath id="strapClip"><rect x="-76" y="-268" width="144" height="32" rx="15"/></clipPath>
+  </defs>`;
+}
+
+/* ------------------------------------------------------------ icons (stroke, centred on 0,0, ~48px) */
+const ICON = {
+  plan: `<rect x="-15" y="-17" width="30" height="38" rx="4"/><rect x="-8" y="-23" width="16" height="9" rx="3"/><path d="M -8,-3 h16 M -8,5 h16 M -8,13 h10"/>`,
+  buy: `<path d="M -22,-15 h7 l6,24 h20 l5,-17 h-29"/><circle cx="-5" cy="16" r="3.5"/><circle cx="12" cy="16" r="3.5"/>`,
+  build: `<g transform="rotate(45)"><rect x="-6" y="-24" width="12" height="20" rx="5"/><path d="M 0,-4 V 22"/></g>`,
+  test: `<path d="M -19,9 A 19 19 0 1 1 19,9"/><path d="M 0,7 L 10,-9"/><circle cx="0" cy="7" r="3"/>`,
+  yours: `<path d="M -16,-9 h32 a 8 8 0 0 1 8,8 l 2,10 a 6 6 0 0 1 -10,4 l -6,-6 h-16 l -6,6 a 6 6 0 0 1 -10,-4 l 2,-10 a 8 8 0 0 1 8,-8 Z"/><path d="M -12,-2 v8 M -16,2 h8"/><circle cx="10" cy="0" r="1.6"/><circle cx="15" cy="4" r="1.6"/>`,
+  bolt: `<path d="M 4,-22 L -12,4 H 0 L -4,22 L 12,-4 H 0 Z" fill="currentColor"/>`,
+  shield: `<path d="M 0,-21 L 17,-14 V 0 C 17,11 9,18 0,22 C -9,18 -17,11 -17,0 V -14 Z"/><path d="M -7,0 l 5,5 l 9,-10"/>`,
+  dollar: `<path d="M 9,-12 C 6,-17 -10,-18 -10,-8 C -10,2 10,-2 10,9 C 10,19 -7,18 -10,12 M 0,-21 V 21"/>`,
+  monitor: `<rect x="-21" y="-16" width="42" height="27" rx="3"/><path d="M -9,19 h18 M 0,11 v8"/>`,
+  pad: `<path d="M -16,-9 h32 a 8 8 0 0 1 8,8 l 2,10 a 6 6 0 0 1 -10,4 l -6,-6 h-16 l -6,6 a 6 6 0 0 1 -10,-4 l 2,-10 a 8 8 0 0 1 8,-8 Z"/><path d="M -12,-2 v8 M -16,2 h8"/>`,
+  check: `<path d="M -11,0 l 7,7 l 14,-15"/>`,
+};
+const icon = (name, color, sw = 4, scale = 1) => `<g transform="scale(${scale})" fill="none" stroke="${color}" color="${color}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round">${ICON[name]}</g>`;
+/* ================================================================ RTX 3080 vs RTX 5070
+   Why a 2020 card and a 2025 card are close in raw raster. The avatar, rig, GPU art,
+   captions and voiceover clock are shared with the earlier reels. */
+
+Object.assign(C, { orange: '#FFB547', purple: '#C084FC' });
+const OLD = C.blue, NEW = C.green;          // RTX 3080 = blue, RTX 5070 = green (CVD-checked pair, always labelled)
+
+function defs3() {
+  return `<defs>
+    <linearGradient id="dieGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2c3654"/><stop offset=".5" stop-color="#19203a"/><stop offset="1" stop-color="#29324f"/></linearGradient>
+    <pattern id="dieGrid" width="22" height="22" patternUnits="userSpaceOnUse"><rect x="2.5" y="2.5" width="17" height="17" rx="2" fill="#41507e" opacity=".5"/></pattern>
+    <linearGradient id="pipeGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b4775"/><stop offset=".5" stop-color="#28315a"/><stop offset="1" stop-color="#1b2242"/></linearGradient>
+    <linearGradient id="dieShine" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffffff" stop-opacity=".16"/><stop offset=".4" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
+  </defs>`;
+}
+Object.assign(ICON, {
+  frames: `<rect x="-20" y="-14" width="26" height="20" rx="3"/><rect x="-12" y="-6" width="26" height="20" rx="3"/><path d="M 10,-20 l 3,-5 l 3,5 M 19,-13 l 5,-2" />`,
+  vram: `<rect x="-20" y="-12" width="40" height="24" rx="3"/><path d="M -12,-12 v -6 M -4,-12 v -6 M 4,-12 v -6 M 12,-12 v -6 M -12,12 v 6 M -4,12 v 6 M 4,12 v 6 M 12,12 v 6"/>`,
+});
+
+/* ------------------------------------------------------------ world: Frank at the bench */
+function worldFront3() {
+  return `<g id="wf">
+    <g id="frankBodyG" transform="translate(650,1060)">${frankBody()}</g>
+    <g id="bench">
+      <rect x="-1400" y="1500" width="3400" height="700" fill="url(#benchGrad)"/>
+      <rect x="-1400" y="1500" width="3400" height="44" fill="#252c3e"/>
+      <rect x="-1400" y="1542" width="3400" height="5" fill="#39435c"/>
+      <path d="M 200,1506 L 1100,1506 L 1120,1538 L 180,1538 Z" fill="#134a52" stroke="#0b2c31" stroke-width="3"/>
+      <g transform="translate(250,1514)"><rect x="0" y="0" width="120" height="18" rx="9" fill="#e8b23a" stroke="${C.out}" stroke-width="3"/><rect x="118" y="5" width="90" height="8" rx="3" fill="#aeb6c4" stroke="${C.out}" stroke-width="2"/></g>
+    </g>
+    <g id="frankArmsG" transform="translate(650,1060)">${frankArms()}</g>
+    <g id="frankHandsG" transform="translate(650,1060)">${frankHands()}</g>
+  </g>`;
+}
+
+/* ------------------------------------------------------------ overlay */
+const SH = 'filter="url(#shadow)"';
+const pill = (id, x, y, text, color, size = 40, extra = '') => `<g id="${id}" opacity="0" transform="translate(${x},${y})" ${extra}>
+    <rect class="pillBg" x="-150" y="${-size * .95}" width="300" height="${size * 1.5}" rx="${size * .75}" fill="${color}" fill-opacity=".16" stroke="${color}" stroke-width="4"/>
+    <text class="pillTx hd" x="0" y="${size * .02}" text-anchor="middle" font-size="${size}" fill="${color === C.yellow ? C.yellow : C.ink}">${text}</text></g>`;
+const FPS_OLD = 82.0, FPS_NEW = 96.4, PXF = 5.5;      // Tom's Hardware 2026 hierarchy, 1440p Ultra, native raster
+const GRID = { old: 144, new: 102 };                   // one square = ~60 CUDA cores (8,704 vs 6,144)
+function coreGrid(id, cx, n, col) {
+  let s = '';
+  for (let i = 0; i < n; i++) { const c = i % 16, r = Math.floor(i / 16); s += `<rect class="${id}" x="${(cx - 176 + c * 22).toFixed(0)}" y="${342 + r * 22}" width="17" height="17" rx="3" fill="${col}" opacity="0"/>`; }
+  return s;
+}
+function dial(id, x, y, col) {
+  return `<g transform="translate(${x},${y})"><circle r="20" fill="#0b1124" stroke="${col}" stroke-width="4"/><path id="${id}" d="M 0,0 L 0,-14" stroke="#fff" stroke-width="4" stroke-linecap="round"/><circle r="3.5" fill="#fff"/></g>`;
+}
+function memRow(id, y, name, col, busPx, busTxt, cacheSide, cacheTxt) {
+  const cy = y + 75;
+  return `<g id="${id}" opacity="0" transform="translate(0,0)">
+    <text x="70" y="${y - 18}" font-size="38" class="hd" fill="${C.ink}">${name}</text>
+    <rect x="110" y="${y}" width="150" height="150" rx="18" fill="#0f1630" stroke="${col}" stroke-width="4"/>
+    <text x="185" y="${y + 30}" text-anchor="middle" font-size="20" class="bd" fill="${C.ink3}">GPU</text>
+    <rect id="${id}Cache" x="${185 - cacheSide / 2}" y="${cy + 8 - cacheSide / 2}" width="${cacheSide}" height="${cacheSide}" rx="6" fill="${C.yellow}" fill-opacity=".85" stroke="#0b0d12" stroke-width="3"/>
+    <text x="185" y="${y + 186}" text-anchor="middle" font-size="28" class="bd" fill="${C.ink}">${cacheTxt}</text>
+    <rect x="260" y="${cy - busPx / 2}" width="620" height="${busPx}" fill="url(#pipeGrad)" stroke="#0b0d12" stroke-width="3"/>
+    <g id="${id}Dots" clip-path="url(#${id}Clip)"></g>
+    <clipPath id="${id}Clip"><rect x="262" y="${cy - busPx / 2 + 2}" width="616" height="${busPx - 4}"/></clipPath>
+    <text x="570" y="${cy - busPx / 2 - 16}" text-anchor="middle" font-size="32" class="bd" fill="${C.ink}">${busTxt}</text>
+    <rect x="880" y="${y + 10}" width="120" height="130" rx="12" fill="#151c33" stroke="${C.ink3}" stroke-width="3"/>
+    <path d="M 900,${y + 40} h 80 M 900,${y + 65} h 80 M 900,${y + 90} h 80 M 900,${y + 115} h 80" stroke="#2c3658" stroke-width="10" stroke-linecap="round"/>
+    <text x="940" y="${y + 172}" text-anchor="middle" font-size="22" class="bd" fill="${C.ink3}">VRAM</text>
+  </g>`;
+}
+function die(id, x, y, side, col) {
+  return `<g id="${id}" opacity="0" transform="translate(0,0)">
+    <rect x="${x}" y="${y}" width="${side}" height="${side}" rx="8" fill="url(#dieGrad)" stroke="#c9a24a" stroke-width="5"/>
+    <rect x="${x + 8}" y="${y + 8}" width="${side - 16}" height="${side - 16}" fill="url(#dieGrid)"/>
+    <rect x="${x}" y="${y}" width="${side}" height="${side}" rx="8" fill="url(#dieShine)"/>
+    <rect x="${x - 4}" y="${y + side + 6}" width="${side + 8}" height="8" rx="4" fill="${col}"/></g>`;
+}
+function winRow(id, y, ic, title, sub, right, col) {
+  return `<g id="${id}" opacity="0" transform="translate(0,0)">
+    <rect x="70" y="${y}" width="940" height="128" rx="24" fill="url(#cardGrad)" stroke="#2b3453" stroke-width="3"/>
+    <g transform="translate(140,${y + 64})"><circle r="40" fill="${NEW}"/>${icon(ic, '#04130a', 4.5)}</g>
+    <text x="206" y="${y + 56}" font-size="40" class="hd" fill="${C.ink}">${title}</text>
+    <text x="206" y="${y + 98}" font-size="27" class="md" fill="${C.ink2}">${sub}</text>
+    <text x="980" y="${y + 78}" text-anchor="end" font-size="42" class="hd" fill="${col}">${right}</text></g>`;
+}
+function overlay3() {
+  return `<g id="ov">
+    <rect id="shade" x="0" y="0" width="1080" height="1180" fill="url(#topShade)" opacity="0"/>
+
+    <!-- HOOK: the face-off -->
+    <g id="hkL" opacity="0" transform="translate(290,420)">
+      <g transform="scale(.52)">${gpuFront('g80')}</g><rect x="-110" y="52" width="220" height="7" rx="3.5" fill="${OLD}"/>
+      <text x="0" y="128" text-anchor="middle" font-size="60" class="hd" fill="${C.ink}" ${SH}>RTX 3080</text></g>
+    <g id="hkR" opacity="0" transform="translate(790,420)">
+      <g transform="scale(.52)">${gpuFront('g50')}</g><rect x="-110" y="52" width="220" height="7" rx="3.5" fill="${NEW}"/>
+      <text x="0" y="128" text-anchor="middle" font-size="60" class="hd" fill="${C.ink}" ${SH}>RTX 5070</text></g>
+    <g id="hkVS" opacity="0" transform="translate(540,410)"><circle r="52" fill="#0b1124" stroke="${C.yellow}" stroke-width="5"/><text y="17" text-anchor="middle" font-size="46" class="hd" fill="${C.yellow}">VS</text></g>
+    ${pill('hkLy', 290, 610, '2020', OLD, 36)}
+    ${pill('hkRy', 790, 610, '2025', NEW, 36)}
+
+    <!-- 1: raw raster -->
+    ${tx('b0', 540, 248, 52, 'hd', C.ink, 'RAW RASTER · 1440p ULTRA', SH)}
+    ${tx('b1', 540, 298, 30, 'bd', C.ink3, 'native resolution · no upscaling · no frame gen', SH)}
+    <g id="bRowA" opacity="0" transform="translate(0,0)">
+      <text x="70" y="420" font-size="42" class="hd" fill="${C.ink}">RTX 3080</text><text x="70" y="456" font-size="26" class="bd" fill="${C.ink3}">2020</text>
+      <rect x="320" y="388" width="${120 * PXF}" height="58" rx="12" fill="#121a38"/>
+      <rect id="barA" x="320" y="388" width="0" height="58" rx="12" fill="${OLD}"/>
+      <text id="barAv" x="0" y="430" font-size="36" class="hd tn" fill="${C.ink}">0 FPS</text></g>
+    <g id="bRowB" opacity="0" transform="translate(0,0)">
+      <text x="70" y="580" font-size="42" class="hd" fill="${C.ink}">RTX 5070</text><text x="70" y="616" font-size="26" class="bd" fill="${C.ink3}">2025</text><text x="70" y="648" font-size="24" class="bd" fill="${C.yellow}">4.5 yrs newer</text>
+      <rect x="320" y="548" width="${120 * PXF}" height="58" rx="12" fill="#121a38"/>
+      <rect id="barB" x="320" y="548" width="0" height="58" rx="12" fill="${NEW}"/>
+      <text id="barBv" x="0" y="590" font-size="36" class="hd tn" fill="${C.ink}">0 FPS</text></g>
+    ${pill('bDelta', 880, 502, 'only +18%', C.yellow, 40)}
+    ${tx('b3', 540, 700, 24, 'md', C.ink3, 'Source: Tom’s Hardware GPU Benchmarks Hierarchy (2026), 1440p Ultra', SH)}
+
+    <!-- 2: cores x clock -->
+    ${tx('m0', 540, 240, 50, 'hd', C.ink, 'MORE CORES vs FASTER CORES', SH)}
+    <g id="mColA" opacity="0" transform="translate(0,0)"><text x="290" y="312" text-anchor="middle" font-size="40" class="hd" fill="${C.ink}">RTX 3080</text>${coreGrid('gA', 290, GRID.old, OLD)}</g>
+    <g id="mColB" opacity="0" transform="translate(0,0)"><text x="790" y="312" text-anchor="middle" font-size="40" class="hd" fill="${C.ink}">RTX 5070</text>${coreGrid('gB', 790, GRID.new, NEW)}</g>
+    ${tx('mcA', 290, 594, 36, 'bd', C.ink, '8,704 cores', SH)}
+    ${tx('mcB', 790, 594, 36, 'bd', C.ink, '6,144 cores', SH)}
+    <g id="mkA" opacity="0" transform="translate(290,654)">${dial('dlA', -120, -12, OLD)}<text x="10" y="0" text-anchor="middle" font-size="36" class="bd" fill="${C.ink}">× 1.71 GHz</text></g>
+    <g id="mkB" opacity="0" transform="translate(790,654)">${dial('dlB', -120, -12, NEW)}<text x="10" y="0" text-anchor="middle" font-size="36" class="bd" fill="${C.ink}">× 2.51 GHz</text></g>
+    <g id="mResA" opacity="0" transform="translate(0,0)"><rect x="110" y="700" width="360" height="40" rx="10" fill="#121a38"/><rect id="tfA" x="110" y="700" width="0" height="40" rx="10" fill="${OLD}"/>
+      <text id="tfAv" x="290" y="796" text-anchor="middle" font-size="40" class="hd tn" fill="${C.ink}">= 0 TFLOPS</text></g>
+    <g id="mResB" opacity="0" transform="translate(0,0)"><rect x="610" y="700" width="360" height="40" rx="10" fill="#121a38"/><rect id="tfB" x="610" y="700" width="0" height="40" rx="10" fill="${NEW}"/>
+      <text id="tfBv" x="790" y="796" text-anchor="middle" font-size="40" class="hd tn" fill="${C.ink}">= 0 TFLOPS</text></g>
+    ${pill('mSame', 540, 900, 'BASICALLY THE SAME MATH', C.yellow, 42)}
+
+    <!-- 3: bandwidth vs cache -->
+    ${tx('c0', 540, 240, 50, 'hd', C.ink, 'BANDWIDTH vs CACHE', SH)}
+    ${memRow('memA', 344, 'RTX 3080', OLD, 64, '320-bit · 760 GB/s', 34, '5 MB cache')}
+    ${memRow('memB', 616, 'RTX 5070', NEW, 38, '192-bit · 672 GB/s', 105, '48 MB cache')}
+    ${pill('c10x', 640, 922, '~10× THE CACHE', C.yellow, 42)}
+
+    <!-- 4: chip size -->
+    ${tx('d0', 540, 240, 50, 'hd', C.ink, 'SMALLER CHIP, SAME BALLPARK', SH)}
+    ${die('dieA', 110, 330, 300, OLD)}
+    ${die('dieB', 650, 436, 194, NEW)}
+    <g id="dLabA" opacity="0" transform="translate(0,0)"><text x="260" y="694" text-anchor="middle" font-size="34" class="hd" fill="${C.ink}">RTX 3080 · GA102</text>
+      <text x="260" y="736" text-anchor="middle" font-size="28" class="bd" fill="${C.ink2}">628 mm² · 28.3B transistors</text>
+      <text x="260" y="772" text-anchor="middle" font-size="26" class="md" fill="${C.ink3}">Samsung 8nm</text></g>
+    <g id="dLabB" opacity="0" transform="translate(0,0)"><text x="747" y="694" text-anchor="middle" font-size="34" class="hd" fill="${C.ink}">RTX 5070 · GB205</text>
+      <text x="747" y="736" text-anchor="middle" font-size="28" class="bd" fill="${C.ink2}">263 mm² · 31.1B transistors</text>
+      <text id="dNode" x="747" y="772" text-anchor="middle" font-size="26" class="md" fill="${C.ink3}">TSMC 4N (newer)</text></g>
+    ${pill('dHalf', 540, 880, 'LESS THAN HALF THE SIZE', C.yellow, 42)}
+
+    <!-- 5: where the 5070 wins -->
+    ${tx('w0', 540, 240, 50, 'hd', C.ink, 'WHERE THE 5070 PULLS AHEAD', SH)}
+    ${winRow('wr0', 300, 'frames', 'Frame generation', 'DLSS 4 Multi Frame Gen · RTX 50 only', '5070 only', NEW)}
+    ${winRow('wr1', 452, 'vram', 'VRAM', '12 GB vs 10 GB', '+2 GB', NEW)}
+    ${winRow('wr2', 604, 'bolt', 'Power', '250 W vs 320 W', '−70 W', NEW)}
+    ${tx('w4', 540, 800, 26, 'md', C.ink3, 'NVIDIA’s “5070 = 4090 performance” claim had multi frame gen on.', SH)}
+
+    <!-- CTA: each line appears on the word you say it -->
+    <g id="ctSD" opacity="0" transform="translate(540,486)" filter="url(#shadow)">
+      <g id="ctPin" transform="translate(-260,-26)"><path d="M 0,40 C -6,30 -32,6 -32,-12 C -32,-30 -18,-44 0,-44 C 18,-44 32,-30 32,-12 C 32,6 6,30 0,40 Z" fill="${C.yellow}" stroke="#0b0d12" stroke-width="5"/><circle cx="0" cy="-13" r="11" fill="#0b0d12"/></g>
+      <text id="ctSDt" x="40" y="0" text-anchor="middle" font-size="62" class="hd" fill="${C.yellow}">IN SAN DIEGO COUNTY?</text>
+    </g>
+    <g id="ctBox" opacity="0" transform="translate(540,642)">
+      <rect id="ctGlow" x="-250" y="-90" width="500" height="180" rx="40" fill="${C.green}" opacity=".5" filter="url(#blur24)"/>
+      <rect x="-236" y="-82" width="472" height="164" rx="34" fill="${C.green}" stroke="#0b0d12" stroke-width="5"/>
+      <text x="0" y="42" text-anchor="middle" font-size="120" class="hd" fill="#04130a">DM ME</text>
+    </g>
+    ${tx('ctC', 540, 800, 44, 'bd', C.ink, 'your budget + what you play', SH)}
+    ${tx('ctE', 540, 862, 40, 'bd', C.ink2, 'I’ll tell you which one I’d go with.', SH)}
+    <g id="ctD" opacity="0" transform="translate(540,940)"><rect x="-390" y="-34" width="780" height="56" rx="28" fill="#080c18" fill-opacity=".85" stroke="#2b3453" stroke-width="2"/>
+      <text x="0" y="5" text-anchor="middle" font-size="28" class="bd" fill="${C.ink2}">Frank DeAmicis · gaming PCs · San Diego County</text></g>
+
+    <g id="cap"></g>
+    <g id="streakG" opacity="0"><rect id="streak" x="-300" y="-2000" width="260" height="4000" fill="url(#streak)" transform="rotate(18)"/></g>
+  </g>`;
+}
+
+/* ------------------------------------------------------------ build DOM */
+svg.innerHTML = defs() + defs2() + defs3() +
+  `<rect width="1080" height="1920" fill="url(#bgGrad)"/>` +
+  `<g id="camB">${worldBack()}</g>` + particles() +
+  `<g id="cam"><g id="shake">${worldFront3()}</g></g>` +
+  `<rect width="1080" height="1920" fill="url(#vignette)" pointer-events="none"/>` +
+  overlay3();
+
+// size pills to their text; centre the pin with "IN SAN DIEGO COUNTY?"
+document.querySelectorAll('.pillTx').forEach(t => {
+  const g = t.parentNode, bg = g.querySelector('.pillBg'), L = t.getComputedTextLength(), fs = +t.getAttribute('font-size');
+  const w = L + fs * 1.3; bg.setAttribute('x', (-w / 2).toFixed(1)); bg.setAttribute('width', w.toFixed(1));
+});
+(function centreSD() {
+  const t = $('ctSDt'), L = t.getComputedTextLength(), pinW = 64, gap = 18, left = -(pinW + gap + L) / 2;
+  $('ctPin').setAttribute('transform', `translate(${(left + pinW / 2).toFixed(1)},-24)`);
+  t.setAttribute('x', (left + pinW + gap + L / 2).toFixed(1));
+})();
+
+/* ------------------------------------------------------------ Frank poses (Frank-local hand targets) */
+const DOWN = [-0.3, 0.95], DOWNR = [0.3, 0.95];
+const POSES = {
+  idle:     { L: [-150, 418], R: [150, 418], hL: 'relax', hR: 'relax', rL: -28, rR: 28, k: .8 },
+  present:  { L: [-262, 262], R: [262, 262], hL: 'relax', hR: 'relax', rL: -58, rR: 58, k: .8 },
+  pointUp:  { L: [-150, 418], R: [262, -118], hL: 'relax', hR: 'point', rL: -28, rR: 180, k: 1 },
+  thumbsUp: { L: [-150, 418], R: [236, 64], hL: 'relax', hR: 'thumb', rL: -28, rR: 180, k: .86 },
+  ctaPoint: { L: [-150, 418], R: [258, -128], hL: 'relax', hR: 'point', rL: -28, rR: 186, k: 1 },
+};
+const POSE_TL = [
+  [0, 0, 'idle'], [1.0, 1.4, 'present'], [5.4, 5.8, 'idle'],
+  [9.0, 9.4, 'pointUp'], [12.9, 13.3, 'idle'],
+  [14.6, 15.0, 'pointUp'], [19.8, 20.2, 'present'], [23.4, 23.8, 'idle'],
+  [25.2, 25.6, 'pointUp'], [32.6, 33.0, 'idle'],
+  [34.6, 35.0, 'pointUp'], [39.0, 39.4, 'idle'],
+  [42.4, 42.8, 'present'], [47.6, 48.0, 'thumbsUp'], [48.8, 49.2, 'idle'],
+  [49.6, 50.0, 'ctaPoint'], [55.4, 55.8, 'thumbsUp'],
+];
+function poseAt(t) {
+  let cur = POSES[POSE_TL[0][2]], prev = cur, p = 1;
+  for (const [a, b, name] of POSE_TL) if (t >= a) { prev = cur; cur = POSES[name]; p = b > a ? EASE.inOut(seg(t, a, b)) : 1; }
+  const m = k => mix(prev[k], cur[k], p);
+  const rotMix = (a, b) => a == null || b == null ? (p < .5 ? a : b) : lerp(a, b, p);
+  return { L: m('L'), R: m('R'), hL: p < .5 ? prev.hL : cur.hL, hR: p < .5 ? prev.hR : cur.hR, rL: rotMix(prev.rL, cur.rL), rR: rotMix(prev.rR, cur.rR), k: lerp(prev.k || 1, cur.k || 1, p) };
+}
+
+/* ------------------------------------------------------------ expressions (mouth always shut) */
+const EXPR = {
+  friendly: { brow: .3, smile: .55, open: 0, look: [0, 0], tilt: -2 },
+  talk:     { brow: .45, smile: .35, open: 0, look: [0, 0], tilt: 2 },
+  up:       { brow: .35, smile: .2, open: 0, look: [2, -5], tilt: 0 },
+  smug:     { brow: .7, smile: .7, open: 0, look: [0, 0], tilt: -4 },
+  happy:    { brow: .45, smile: 1, open: 0, look: [0, 0], tilt: -3 },
+};
+const EXPR_TL = [[0, 'friendly'], [6.6, 'talk'], [10.5, 'smug'], [13.6, 'up'], [22.8, 'smug'], [24.4, 'up'], [31.3, 'smug'],
+  [33.6, 'up'], [36.4, 'smug'], [39.9, 'up'], [47.6, 'happy']];
+function exprAt(t) {
+  let i = 0; for (let k = 0; k < EXPR_TL.length; k++) if (t >= EXPR_TL[k][0]) i = k;
+  const cur = EXPR[EXPR_TL[i][1]], prev = i > 0 ? EXPR[EXPR_TL[i - 1][1]] : cur;
+  const p = EASE.inOut(seg(t, EXPR_TL[i][0], EXPR_TL[i][0] + .25));
+  const o = {}; for (const k in cur) o[k] = mix(prev[k], cur[k], p); return o;
+}
+const BLINKS = [2.7, 5.9, 9.6, 12.4, 16.2, 19.4, 22.1, 26.5, 29.8, 34.1, 37.5, 41.2, 44.6, 50.4, 53.6, 57.2];
+const blinkAt = t => BLINKS.reduce((b, t0) => Math.max(b, pulse(t, t0, .06, .05, .08)), 0);
+
+/* ------------------------------------------------------------ camera */
+const CAMS = {
+  hero: [1.08, 640, 1180, 540, 1340], hero2: [1.12, 640, 1180, 540, 1340],
+  split: [0.8, 650, 1300, 540, 1620],
+  cta: [1.0, 640, 1200, 540, 1540], cta2: [1.04, 640, 1200, 540, 1540],
+};
+const CAM_TL = [[0, 'hero'], [6.2, 'hero2', 'lin'], [6.75, 'split'], [48.7, 'split'], [49.35, 'cta'], [DUR, 'cta2', 'lin']].map(([t, n, e]) => [t, CAMS[n], e]);
+
+/* ------------------------------------------------------------ voiceover: the words Frank says, and when (seconds)
+   Captions, graph timing and on-screen pops hang off these word times. */
+const VO = [
+  [0.35, "An RTX 3080 from 2020 is closer to a 5070 than you'd think."],
+  [6.8, "4 and a half years newer, and it's only about 18 percent faster in raw raster."],
+  [13.9, "The 3080 has more cores. The 5070 has fewer, but runs them faster. Multiply it out, it's basically the same math."],
+  [24.6, "The 3080 even has more memory bandwidth. The 5070 makes up for it with almost 10 times the cache."],
+  [33.8, "And the 5070 chip is less than half the size, on a newer process."],
+  [40.1, "Where the 5070 pulls ahead is frame generation, 2 more gigs of VRAM, and 70 watts less power."],
+  [49.1, "In San Diego County? DM me your budget and what you play. I'll tell you which one I'd go with."],
+];
+// relaxed read: ~2.2 words/s; numbers and spelled-out acronyms take longer; real pauses at punctuation
+const VOW = VO.map(([start, text]) => {
+  const words = text.split(' '), out = []; let t = start;
+  words.forEach((w, i) => {
+    const core = w.replace(/[^A-Za-z0-9]/g, ''), n = core.length;
+    const d = /\d/.test(core) ? .16 + .12 * n : (/^[A-Z]{2,4}$/.test(core) ? .16 + .15 * n : .16 + .05 * n);
+    out.push({ w, t0: t, t1: t + d, n }); t += d;
+    if (i < words.length - 1) t += /[.?!]$/.test(w) ? .42 : /[,:]$/.test(w) ? .22 : .03;
+  });
+  return out;
+});
+const Wr = (l, i) => VOW[l][i].t0, Wd = (l, i) => toDesign(Wr(l, i)), lineEnd = l => VOW[l][VOW[l].length - 1].t1;
+const SEC = { intro: [0, 6.6], bars: [6.6, 13.7], math: [13.7, 24.4], mem: [24.4, 33.6], chip: [33.6, 39.9], wins: [39.9, 48.9], cta: [48.9, DUR] };
+
+/* ------------------------------------------------------------ text timing [id, in, out, type] */
+const TXT = [
+  ['hkL', Wd(0, 1) - .1, 6.45, 'pop'], ['hkLy', Wd(0, 4) - .08, 6.45, 'pop'], ['hkVS', Wd(0, 6) - .08, 6.45, 'slam'],
+  ['hkR', Wd(0, 9) - .12, 6.45, 'pop'], ['hkRy', Wd(0, 9) + .35, 6.45, 'pop'],
+  ['b0', 6.75, 13.55, 'up'], ['b1', 6.95, 13.55, 'up'], ['bRowA', 7.05, 13.55, 'up'], ['bRowB', Wd(1, 0) + .35, 13.55, 'up'],
+  ['bDelta', Wd(1, 10) - .08, 13.55, 'slam'], ['b3', Wd(1, 13), 13.55, 'up'],
+  ['m0', 13.85, 24.25, 'up'], ['mColA', Wd(2, 1) - .1, 24.25, 'up'], ['mcA', Wd(2, 3) - .08, 24.25, 'pop'],
+  ['mColB', Wd(2, 6) - .1, 24.25, 'up'], ['mcB', Wd(2, 8) - .08, 24.25, 'pop'],
+  ['mkA', Wd(2, 10) - .08, 24.25, 'pop'], ['mkB', Wd(2, 12) - .08, 24.25, 'pop'],
+  ['mResA', Wd(2, 13) - .05, 24.25, 'up'], ['mResB', Wd(2, 13) + .2, 24.25, 'up'], ['mSame', Wd(2, 18) - .08, 24.25, 'slam'],
+  ['c0', 24.55, 33.45, 'up'], ['memA', Wd(3, 1) - .1, 33.45, 'up'], ['memB', Wd(3, 8) - .1, 33.45, 'up'], ['c10x', Wd(3, 15) - .08, 33.45, 'slam'],
+  ['d0', 33.75, 39.75, 'up'], ['dieA', 33.9, 39.75, 'up'], ['dieB', Wd(4, 2) - .1, 39.75, 'up'],
+  ['dLabA', 34.2, 39.75, 'up'], ['dLabB', Wd(4, 3), 39.75, 'up'], ['dHalf', Wd(4, 7) - .08, 39.75, 'slam'],
+  ['w0', 40.05, 48.75, 'up'], ['wr0', Wd(5, 6) - .1, 48.75, 'up'], ['wr1', Wd(5, 8) - .1, 48.75, 'up'], ['wr2', Wd(5, 14) - .1, 48.75, 'up'], ['w4', Wd(5, 16), 48.75, 'up'],
+  ['ctSD', Wd(6, 0) - .12, 60, 'slam'], ['ctBox', Wd(6, 4) - .06, 60, 'slam'], ['ctC', Wd(6, 6) - .08, 60, 'up'], ['ctE', Wd(6, 12) - .08, 60, 'up'], ['ctD', toDesign(lineEnd(6)) + .25, 60, 'up'],
+];
+const BASE = {};
+for (const [id] of TXT) { const m = /translate\(([-\d.]+),([-\d.]+)\)(.*)/.exec($(id).getAttribute('transform')); BASE[id] = [parseFloat(m[1]), parseFloat(m[2]), m[3] || '']; }
+function textAnim(t) {
+  for (const [id, a, b, type] of TXT) {
+    const el = $(id), [x, y, rest] = BASE[id];
+    if (t < a || t > b) { el.setAttribute('opacity', 0); continue; }
+    const pi = seg(t, a, a + (type === 'slam' ? .28 : .38)), po = seg(t, b - .22, b);
+    let s = 1, dx = 0, dy = 0, op = clamp(pi * 3);
+    if (type === 'pop') { s = lerp(.55, 1, EASE.outBack(pi)); op = clamp(pi * 4); }
+    else if (type === 'slam') { s = lerp(1.9, 1, EASE.out(pi)); op = clamp(pi * 5); }
+    else if (type === 'up') { dy = lerp(46, 0, EASE.out(pi)); }
+    op *= 1 - po; dy -= EASE.in(po) * 30; s *= 1 - .05 * po;
+    el.setAttribute('opacity', op.toFixed(3));
+    el.setAttribute('transform', `translate(${(x + dx).toFixed(1)},${(y + dy).toFixed(1)})${rest} scale(${s.toFixed(4)})`);
+  }
+}
+
+/* ------------------------------------------------------------ karaoke captions (your script, the word to say lights up) */
+const CAP_Y = { 0: 720, 1: 1062, 2: 1062, 3: 1062, 4: 1062, 5: 1062 };   // VO line -> caption baseline. The CTA line uses the big on-screen text instead.
+const CAPS = [];
+(function buildCaptions() {
+  if (LAYER === 'base') return;
+  const NS = 'http://www.w3.org/2000/svg', capG = $('cap'), FS = 50, MAXW = 860;
+  const mk = (tag, at) => { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); return e; };
+  const meas = mk('text', { class: 'hd', 'font-size': FS }); capG.appendChild(meas);
+  const wid = str => { meas.textContent = str; return meas.getComputedTextLength(); };
+  const space = wid('a a') - wid('aa');
+  const chars = ws => ws.reduce((n, w) => n + w.w.length, 0) + ws.length - 1;
+  function split(ws) {                              // best balanced split of a long clause, recursively
+    if (chars(ws) <= 33 || ws.length < 2) return [ws];
+    const starters = /^(is|and|but|to|with|on|of|than|so|that|which|in|at|for)$/i;
+    let best = 1, bestCost = 1e9;
+    for (let i = 1; i < ws.length; i++) {
+      let cost = Math.max(chars(ws.slice(0, i)), chars(ws.slice(i)));
+      if (/^\d[\d,.]*$/.test(ws[i - 1].w)) cost += 8;          // keep "18 percent" together
+      if (starters.test(ws[i].w.replace(/[^A-Za-z']/g, ''))) cost -= 3;   // break before small words
+      if (cost < bestCost) { bestCost = cost; best = i; }
+    }
+    return [...split(ws.slice(0, best)), ...split(ws.slice(best))];
+  }
+  for (const li of Object.keys(CAP_Y).map(Number)) {
+    const clauses = []; let cur = [];
+    for (const w of VOW[li]) { cur.push(w); if (/[.?!]$/.test(w.w) || (/,$/.test(w.w) && cur.length >= 3)) { clauses.push(cur); cur = []; } }
+    if (cur.length) clauses.push(cur);
+    for (const c of clauses) for (const words of split(c)) CAPS.push({ li, y: CAP_Y[li], words });
+  }
+  CAPS.forEach((c, ci) => {
+    const g = mk('g', { opacity: 0 });
+    const pill = mk('rect', { rx: 14, height: 66, fill: C.yellow, opacity: 0 });
+    g.appendChild(pill);
+    const ws = c.words.map(w => wid(w.w)), total = ws.reduce((a, b) => a + b, 0) + space * (ws.length - 1);
+    const sc = Math.min(1, MAXW / total);
+    let x = 540 - total * sc / 2;
+    c.els = c.words.map((w, i) => {
+      const e = mk('text', { x: x.toFixed(1), y: c.y, 'font-size': (FS * sc).toFixed(1), class: 'hd', fill: '#ffffff', stroke: '#05070d', 'stroke-width': 9, 'paint-order': 'stroke', 'stroke-linejoin': 'round' });
+      e.textContent = w.w; g.appendChild(e);
+      const item = { e, x, w: ws[i] * sc };
+      x += (ws[i] + space) * sc;
+      return item;
+    });
+    c.g = g; c.pill = pill; c.sc = sc;
+    const next = CAPS[ci + 1];
+    c.show = c.words[0].t0 - .3;
+    c.hide = Math.min(c.words[c.words.length - 1].t1 + .3, next && next.li === c.li ? next.words[0].t0 - .3 : 1e9);
+    capG.appendChild(g);
+  });
+  meas.remove();
+})();
+function captionsAnim(T) {
+  for (const c of CAPS) {
+    if (T < c.show || T > c.hide) { c.g.setAttribute('opacity', 0); continue; }
+    const pin = seg(T, c.show, c.show + .15);
+    c.g.setAttribute('opacity', (clamp(pin * 2) * (1 - seg(T, c.hide - .12, c.hide))).toFixed(2));
+    c.g.setAttribute('transform', `translate(540,${c.y}) scale(${lerp(.92, 1, EASE.outBack(pin)).toFixed(3)}) translate(-540,${-c.y})`);
+    let cur = -1;
+    c.words.forEach((w, i) => { if (T >= w.t0) cur = i; });
+    c.words.forEach((w, i) => {
+      const el = c.els[i].e, on = i === cur && T <= w.t1 + .25;
+      el.setAttribute('fill', on ? '#14110a' : '#ffffff');
+      el.setAttribute('stroke-width', on ? 0 : 9);
+      el.setAttribute('opacity', i <= cur ? 1 : .62);
+    });
+    const w = cur >= 0 && T <= c.words[cur].t1 + .25 ? c.els[cur] : null;
+    c.pill.setAttribute('opacity', w ? 1 : 0);
+    if (w) {
+      const pop = 1 + .08 * (1 - EASE.out(seg(T, c.words[cur].t0, c.words[cur].t0 + .12)));
+      c.pill.setAttribute('x', (w.x - 12 * c.sc - (pop - 1) * w.w / 2).toFixed(1)); c.pill.setAttribute('width', (w.w + 24 * c.sc) * pop);
+      c.pill.setAttribute('y', (c.y - 48 * c.sc).toFixed(1)); c.pill.setAttribute('height', (66 * c.sc).toFixed(1));
+    }
+  }
+}
+/* ------------------------------------------------------------ main render */
+const PTS = Array.from(document.querySelectorAll('.pt')).map(e => ({ e, x: +e.dataset.x, y: +e.dataset.y, s: +e.dataset.s, p: +e.dataset.p }));
+const GA = Array.from(document.querySelectorAll('.gA')), GB = Array.from(document.querySelectorAll('.gB'));
+const BLADES = [...document.querySelectorAll('.g80-bl'), ...document.querySelectorAll('.g50-bl')];
+const BAR_A = [7.25, 8.35], BAR_B = [Wd(1, 0) + .5, Wd(1, 0) + 1.7];
+function camAt(t) {
+  const c = tk(CAM_TL, t); let sx = 0, sy = 0;
+  for (const [t0, amp] of [[Wd(0, 6), 8], [Wd(6, 4), 10]]) {
+    const k = seg(t, t0, t0 + .3); if (t >= t0 && k < 1) { const d = (1 - k) * amp; sx += Math.sin(t * 93) * d; sy += Math.cos(t * 71) * d; }
+  }
+  return { c, sx, sy };
+}
+// data packets flowing from VRAM to the GPU: lanes ~ bus width, speed ~ memory speed (19 vs 28 Gbps)
+function packets(t, cy, busPx, lanes, speed, col) {
+  let s = '';
+  const gap = 46, span = 616, off = (t * speed) % gap;
+  for (let l = 0; l < lanes; l++) {
+    const y = cy - busPx / 2 + (busPx / lanes) * (l + .5), stagger = (l % 2) * gap / 2;
+    for (let x = 878 - off - stagger; x > 262 - gap; x -= gap) s += `<rect x="${(x - 7).toFixed(1)}" y="${(y - 4).toFixed(1)}" width="14" height="8" rx="4" fill="${col}"/>`;
+  }
+  return s;
+}
+
+function renderFrame(T) {
+  T = Math.max(0, Math.min(DUR, T));
+  if (LAYER === 'captions') { captionsAnim(T); return; }
+  const t = toDesign(T);
+  if (LAYER === 'all') captionsAnim(T);
+  const { c, sx, sy } = camAt(t);
+  const [s, fx, fy, ax, ay] = c;
+  $('cam').setAttribute('transform', `translate(${(ax + sx).toFixed(2)},${(ay + sy).toFixed(2)}) scale(${s.toFixed(4)}) translate(${-fx},${-fy})`);
+  const bs = 1 + (s - 1) * .6;
+  $('camB').setAttribute('transform', `translate(${(ax + sx * .5).toFixed(2)},${(ay + sy * .5).toFixed(2)}) scale(${bs.toFixed(4)}) translate(${-fx},${-fy})`);
+  for (const q of PTS) {
+    const y = ((q.y - t * q.s) % 1920 + 1920) % 1920, x = q.x + Math.sin(t * .6 + q.p) * 14;
+    q.e.setAttribute('cx', x.toFixed(1)); q.e.setAttribute('cy', y.toFixed(1));
+    q.e.setAttribute('opacity', (.18 + .22 * (1 + Math.sin(t * 1.3 + q.p)) / 2).toFixed(3));
+  }
+
+  /* ---- Frank (mouth stays shut) */
+  const ex = exprAt(t), bl = blinkAt(t), breathe = Math.sin(t * Math.PI * .9), pose = poseAt(t);
+  $('fTorso').setAttribute('transform', `translate(0,${(breathe * 2).toFixed(2)})`);
+  const nod = [[Wd(1, 10), .8], [Wd(2, 18), .8], [Wd(6, 4), .8]].reduce((a, [t0, d]) => a + (t > t0 && t < t0 + d ? Math.sin(seg(t, t0, t0 + d) * Math.PI * 2) * 3 : 0), 0);
+  $('fHead').setAttribute('transform', `translate(0,${(breathe * 3 + nod * 2).toFixed(2)}) rotate(${(ex.tilt + Math.sin(t * .8) * 1.2).toFixed(2)},0,0)`);
+  for (const sd of ['L', 'R']) {
+    $(`iris${sd}`).setAttribute('transform', `translate(${ex.look[0].toFixed(2)},${ex.look[1].toFixed(2)})`);
+    const cy = lerp(-6 - ex.brow * 3, 11, bl).toFixed(2);
+    $(`lidF${sd}`).setAttribute('d', `M -26,-1 C -12,${cy} 12,${cy} 26,-1 L 26,-30 L -26,-30 Z`);
+    $(`lidL${sd}`).setAttribute('d', `M -23,-1 C -12,${cy} 12,${cy} 23,-1`);
+  }
+  $('browL').setAttribute('transform', `translate(0,${(-ex.brow * 14).toFixed(2)}) rotate(${(-ex.brow * 4).toFixed(2)},-58,-220)`);
+  $('browR').setAttribute('transform', `translate(0,${(-ex.brow * 14).toFixed(2)}) rotate(${(ex.brow * 4).toFixed(2)},58,-220)`);
+  const wS = clamp(ex.smile);
+  $('mN').setAttribute('opacity', (1 - wS).toFixed(2)); $('mS').setAttribute('opacity', wS.toFixed(2)); $('mO').setAttribute('opacity', 0);
+  const armBob = breathe * 2;
+  const AL = solveArm('L', [pose.L[0], pose.L[1] + armBob], DOWN, pose.k), AR = solveArm('R', [pose.R[0], pose.R[1] + armBob], DOWNR, pose.k);
+  drawArm('L', AL); drawArm('R', AR);
+  drawHand('L', AL, pose.hL, pose.rL); drawHand('R', AR, pose.hR, pose.rR);
+
+  /* ---- overlay */
+  textAnim(t);
+  $('shade').setAttribute('opacity', tk([[0, .55], [6.3, .55], [6.8, 1], [48.7, 1], [49.3, .7], [DUR, .7]], t).toFixed(3));
+  BLADES.forEach(e => e.setAttribute('transform', `rotate(${(t * 420).toFixed(1)})`));
+
+  // raw raster bars (Tom's Hardware 2026, 1440p Ultra, native)
+  for (const [id, fps, [a, b]] of [['A', FPS_OLD, BAR_A], ['B', FPS_NEW, BAR_B]]) {
+    const k = EASE.out(seg(t, a, b)), w = fps * PXF * k;
+    $(`bar${id}`).setAttribute('width', w.toFixed(1));
+    const v = $(`bar${id}v`); v.setAttribute('x', (320 + w + 16).toFixed(1)); v.textContent = `${Math.round(fps * k)} FPS`;
+  }
+
+  // cores: squares fill in when each card's column shows up
+  GA.forEach((e, i) => e.setAttribute('opacity', t > Wd(2, 1) + i * .006 ? 1 : 0));
+  GB.forEach((e, i) => e.setAttribute('opacity', t > Wd(2, 6) + i * .0085 ? 1 : 0));
+  $('dlA').setAttribute('transform', `rotate(${(t * 1.71 * 260).toFixed(1)})`);
+  $('dlB').setAttribute('transform', `rotate(${(t * 2.51 * 260).toFixed(1)})`);
+  for (const [id, tf, t0] of [['A', 29.8, Wd(2, 13)], ['B', 30.9, Wd(2, 13) + .25]]) {
+    const k = EASE.out(seg(t, t0 + .1, t0 + 1.1));
+    $(`tf${id}`).setAttribute('width', (360 * tf / 32 * k).toFixed(1));
+    $(`tf${id}v`).textContent = `= ${(tf * k).toFixed(1)} TFLOPS`;
+  }
+
+  // memory: packets through the pipes, the 5070's cache lights up on "cache"
+  if (t > 24.3 && t < 33.6) {
+    $('memADots').innerHTML = packets(t, 344 + 75, 64, 5, 190, OLD);
+    $('memBDots').innerHTML = packets(t, 616 + 75, 38, 3, 190 * 28 / 19, NEW);
+  }
+  const cg = Math.max(0, Math.sin(Math.PI * seg(t, Wd(3, 15), Wd(3, 15) + 1.2)));
+  $('memBCache').setAttribute('stroke-width', (3 + 5 * cg).toFixed(1));
+  $('memBCache').setAttribute('transform', `translate(185,${616 + 83}) scale(${(1 + .12 * cg).toFixed(3)}) translate(-185,${-(616 + 83)})`);
+
+  // chip size: "newer process" lights the TSMC label
+  $('dNode').setAttribute('fill', t > Wd(4, 12) - .05 ? C.yellow : C.ink3);
+
+  $('ctGlow').setAttribute('opacity', (.35 + .3 * (1 + Math.sin((t - Wd(6, 4)) * 5)) / 2).toFixed(3));
+  const streaks = [6.45, 13.6, 24.3, 33.5, 39.8, 48.8];
+  let sk = -1; for (const t0 of streaks) if (t >= t0 && t < t0 + .3) sk = (t - t0) / .3;
+  $('streakG').setAttribute('opacity', sk >= 0 ? (.35 * Math.sin(sk * Math.PI)).toFixed(3) : 0);
+  $('streak').setAttribute('x', (-500 + sk * 1900).toFixed(1));
+}
+
+/* ------------------------------------------------------------ audio cue list (read by make_audio.py) */
+const popT = TXT.filter(([, , , ty]) => ty === 'pop' || ty === 'slam').map(([, a]) => Math.max(.05, a));
+const ticks = ([a, b], n) => Array.from({ length: n }, (_, i) => a + (b - a) * i / n);
+const CUE_D = {
+  whoosh: [6.45, 13.6, 24.3, 33.5, 39.8, 48.8],
+  pop: [...popT, ...TXT.filter(([id]) => /^(b0|m0|c0|d0|w0|bRow|mCol|mem|die|wr)/.test(id)).map(([, a]) => a)],
+  tick: [...ticks(BAR_A, 10), ...ticks(BAR_B, 12), ...ticks([Wd(2, 13) + .1, Wd(2, 13) + 1.1], 8), ...ticks([Wd(2, 13) + .35, Wd(2, 13) + 1.35], 8)],
+  blips: [...ticks([Wd(2, 1), Wd(2, 1) + .86], 12), ...ticks([Wd(2, 6), Wd(2, 6) + .86], 9)],
+  chime: [Wd(1, 10), Wd(2, 18), Wd(3, 15), Wd(4, 7)],
+  ding: [Wd(6, 4)],
+  impacts: [Wd(0, 6)],
+  endHit: [DUR - 1.3],
+};
+const R = x => Array.isArray(x) ? x.map(R) : +toReal(x).toFixed(3);
+window.CUES = { bpm: 100, duration: DUR, sections: Object.fromEntries(Object.entries(SEC).map(([k, v]) => [k, R(v)])) };
+for (const k in CUE_D) window.CUES[k] = R(CUE_D[k]);
+window.VO_TIMING = VOW.map(ws => ws.map(w => [w.w, +w.t0.toFixed(2)]));
+
+/* ------------------------------------------------------------ boot */
+if (LAYER === 'captions') {
+  for (const el of svg.children) if (el.tagName !== 'defs' && el.id !== 'ov') el.setAttribute('display', 'none');
+  for (const el of $('ov').children) if (el.id !== 'cap') el.setAttribute('display', 'none');
+  for (const el of [document.documentElement, document.body, $('stage')]) el.style.background = 'transparent';
+}
+window.renderFrame = renderFrame;
+renderFrame(0);
+window.READY = true;
+
+if (!RENDER) {
+  document.body.classList.add('preview');
+  const stage = $('stage'), wrap = $('wrap');
+  const fit = () => { const k = Math.min((innerHeight - 70) / 1920, (innerWidth - 20) / 1080); stage.style.transform = `scale(${k})`; wrap.style.width = 1080 * k + 'px'; wrap.style.height = 1920 * k + 'px'; };
+  fit(); addEventListener('resize', fit);
+  let playing = true, t0 = performance.now(), tCur = 0;
+  const scrub = $('scrub'), tc = $('tc'), btn = $('play');
+  const loop = now => { if (playing) { tCur = ((now - t0) / 1000) % DUR; scrub.value = tCur; } renderFrame(tCur); tc.textContent = tCur.toFixed(2) + 's'; requestAnimationFrame(loop); };
+  requestAnimationFrame(loop);
+  const toggle = () => { playing = !playing; btn.textContent = playing ? 'Pause' : 'Play'; t0 = performance.now() - tCur * 1000; };
+  btn.onclick = toggle; addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); toggle(); } });
+  scrub.oninput = () => { tCur = +scrub.value; t0 = performance.now() - tCur * 1000; };
+}
+</script>
+</body>
+</html>
+
