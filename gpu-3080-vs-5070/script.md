@@ -3,11 +3,9 @@
 59.5 s, 1080×1920, for Reels and TikTok. Why a 2020 RTX 3080 and a 2025 RTX 5070
 are close in raw raster, then the CTA: "In San Diego County? DM me."
 
-## Which file to use
+## The file
 
-- `out/rtx-3080-vs-5070.mp4`: **record over this one.** Read-along captions + quiet background (about -30 LUFS).
-- `out/rtx-3080-vs-5070-no-voiceover.mp4`: same captions, background at normal volume. Post it as is if you're not talking over it.
-- `out/rtx-3080-vs-5070-clean.mp4`: no captions, quiet background, if you'd rather use the app's auto-captions.
+`out/rtx-3080-vs-5070.mp4`: record over this one. Read-along captions + quiet background (about -30 LUFS).
 
 ## How to record
 
@@ -71,4 +69,4 @@ Check that your TikTok message settings let people who don't follow you send you
 ## Notes
 
 - To change a line, edit `VO` in `compare.html` (each line's start time + text). The captions and the on-screen timing follow it. Then run `./build.sh`.
-- Cartoon you keeps his mouth shut, like the last video.
+- Cartoon you keeps his mouth shut. His arms stay at his sides, except a point-up when a key graphic lands (+18%, same math, 10x cache, DM ME).

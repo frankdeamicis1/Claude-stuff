@@ -2,9 +2,7 @@
 # Renders the RTX 3080 vs RTX 5070 reel end to end.
 #   ./build.sh [workers]            (WORK_DIR=... with REUSE_VIDEO=1 redoes only the audio,
 #                                    REUSE_CAPTIONS=1 keeps the rendered caption layer)
-# out/rtx-3080-vs-5070.mp4               read-along captions + quiet bed (~-30 LUFS): record your voice over this one
-# out/rtx-3080-vs-5070-no-voiceover.mp4  read-along captions + normal-volume bed (~-14 LUFS): post it as is
-# out/rtx-3080-vs-5070-clean.mp4         no captions + quiet bed, for the app's auto-captions
+# out/rtx-3080-vs-5070.mp4   read-along captions + quiet bed (~-30 LUFS): record your voice over this one
 # Needs: node + playwright (Chromium), python3 + numpy, ffmpeg.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -40,19 +38,16 @@ else
 fi
 
 echo "5/5 muxing audio"
-# Voiceover versions: about -30 LUFS, peaks capped at -12 dBFS, so a normal speaking voice
-# (-16 to -14 LUFS) sits roughly 14 dB on top. The no-voiceover version is normal posting volume.
+# About -30 LUFS with peaks capped at -12 dBFS, so a normal speaking voice (-16 to -14 LUFS)
+# sits roughly 14 dB on top.
 measured=$(ffmpeg -hide_banner -nostats -i "$WORK/full.wav" -af ebur128=framelog=quiet -f null - 2>&1 | awk '/I:/ {v=$2} END {print v}')
-for v in "video_cap:rtx-3080-vs-5070:-30:0.25" "video_cap:rtx-3080-vs-5070-no-voiceover:-14:0.74" "video:rtx-3080-vs-5070-clean:-30:0.25"; do
-  IFS=: read -r vid name lufs limit <<< "$v"
-  gain=$(awk -v t="$lufs" -v m="$measured" 'BEGIN {printf "%.2f", t - m}')
-  ffmpeg -y -hide_banner -loglevel error -i "$WORK/$vid.mp4" -i "$WORK/full.wav" \
-    -map 0:v -map 1:a -c:v copy \
-    -af "volume=${gain}dB,alimiter=limit=${limit}:attack=1:release=50:level=disabled" \
-    -c:a aac -b:a 192k -ar 48000 -movflags +faststart -shortest "out/$name.mp4"
-  echo "  $name: target $lufs LUFS (gain $gain dB)"
-done
+gain=$(awk -v m="$measured" 'BEGIN {printf "%.2f", -30 - m}')
+ffmpeg -y -hide_banner -loglevel error -i "$WORK/video_cap.mp4" -i "$WORK/full.wav" \
+  -map 0:v -map 1:a -c:v copy \
+  -af "volume=${gain}dB,alimiter=limit=0.25:attack=1:release=50:level=disabled" \
+  -c:a aac -b:a 192k -ar 48000 -movflags +faststart -shortest out/rtx-3080-vs-5070.mp4
+echo "  rtx-3080-vs-5070: -30 LUFS (gain $gain dB)"
 
 LAYER=base node render.js stills "$WORK/cover" 5.6
 cp "$WORK/cover/t005.60.png" out/cover.png
-echo "done -> out/rtx-3080-vs-5070.mp4, out/rtx-3080-vs-5070-no-voiceover.mp4, out/rtx-3080-vs-5070-clean.mp4, out/cover.png"
+echo "done -> out/rtx-3080-vs-5070.mp4, out/cover.png"

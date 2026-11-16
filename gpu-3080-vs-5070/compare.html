@@ -457,6 +457,8 @@ Object.assign(ICON, {
 function worldFront3() {
   return `<g id="wf">
     <g id="frankBodyG" transform="translate(650,1060)">${frankBody()}</g>
+    <g id="frankArmsG" transform="translate(650,1060)">${frankArms()}</g>
+    <g id="frankHandsG" transform="translate(650,1060)">${frankHands()}</g>
     <g id="bench">
       <rect x="-1400" y="1500" width="3400" height="700" fill="url(#benchGrad)"/>
       <rect x="-1400" y="1500" width="3400" height="44" fill="#252c3e"/>
@@ -464,8 +466,6 @@ function worldFront3() {
       <path d="M 200,1506 L 1100,1506 L 1120,1538 L 180,1538 Z" fill="#134a52" stroke="#0b2c31" stroke-width="3"/>
       <g transform="translate(250,1514)"><rect x="0" y="0" width="120" height="18" rx="9" fill="#e8b23a" stroke="${C.out}" stroke-width="3"/><rect x="118" y="5" width="90" height="8" rx="3" fill="#aeb6c4" stroke="${C.out}" stroke-width="2"/></g>
     </g>
-    <g id="frankArmsG" transform="translate(650,1060)">${frankArms()}</g>
-    <g id="frankHandsG" transform="translate(650,1060)">${frankHands()}</g>
   </g>`;
 }
 
@@ -628,20 +628,20 @@ document.querySelectorAll('.pillTx').forEach(t => {
 /* ------------------------------------------------------------ Frank poses (Frank-local hand targets) */
 const DOWN = [-0.3, 0.95], DOWNR = [0.3, 0.95];
 const POSES = {
+  side:     { L: [-236, 520], R: [236, 520], hL: 'relax', hR: 'relax', rL: -6, rR: 6, k: 1 },
   idle:     { L: [-150, 418], R: [150, 418], hL: 'relax', hR: 'relax', rL: -28, rR: 28, k: .8 },
   present:  { L: [-262, 262], R: [262, 262], hL: 'relax', hR: 'relax', rL: -58, rR: 58, k: .8 },
   pointUp:  { L: [-150, 418], R: [262, -118], hL: 'relax', hR: 'point', rL: -28, rR: 180, k: 1 },
   thumbsUp: { L: [-150, 418], R: [236, 64], hL: 'relax', hR: 'thumb', rL: -28, rR: 180, k: .86 },
   ctaPoint: { L: [-150, 418], R: [258, -128], hL: 'relax', hR: 'point', rL: -28, rR: 186, k: 1 },
 };
+// arms rest at the sides; a point-up only when a key graphic lands (+18%, same math, 10x cache, DM ME)
 const POSE_TL = [
-  [0, 0, 'idle'], [1.0, 1.4, 'present'], [5.4, 5.8, 'idle'],
-  [9.0, 9.4, 'pointUp'], [12.9, 13.3, 'idle'],
-  [14.6, 15.0, 'pointUp'], [19.8, 20.2, 'present'], [23.4, 23.8, 'idle'],
-  [25.2, 25.6, 'pointUp'], [32.6, 33.0, 'idle'],
-  [34.6, 35.0, 'pointUp'], [39.0, 39.4, 'idle'],
-  [42.4, 42.8, 'present'], [47.6, 48.0, 'thumbsUp'], [48.8, 49.2, 'idle'],
-  [49.6, 50.0, 'ctaPoint'], [55.4, 55.8, 'thumbsUp'],
+  [0, 0, 'side'],
+  [10.21, 10.61, 'pointUp'], [12.9, 13.3, 'side'],
+  [22.63, 23.03, 'pointUp'], [24.0, 24.35, 'side'],
+  [31.05, 31.45, 'pointUp'], [33.0, 33.4, 'side'],
+  [50.6, 51.0, 'ctaPoint'], [55.6, 56.0, 'side'],
 ];
 function poseAt(t) {
   let cur = POSES[POSE_TL[0][2]], prev = cur, p = 1;
